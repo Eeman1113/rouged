@@ -4,10 +4,14 @@
  * Owns the single AudioContext and the mixing graph:
  *
  *   sfx sources -> out(gain -> panner) -> sfxBus -> slowmoFilter -> master
- *                                    \-> reverbSend -> convolver -> reverbReturn -> master
+ *                                    \-> reverbSend -> convolver (hall) -> reverbReturn -> master
+ *                         (optional) roomSend -> short stereo room -> roomReturn -> master
  *   music       -> musicBus -> duckGain -> master
  *   voice       -> voiceBus -> master
- *   master -> glue compressor -> brickwall limiter -> destination
+ *   master -> DC/rumble highpass -> glue compressor -> makeup -> limiter -> soft clipper -> destination
+ *
+ * The glue comp + makeup make everything loud and dense; the limiter catches
+ * peaks and the final soft clipper (asymptote 0.98) guarantees no hard clipping.
  *
  * Nothing here loads files: the reverb impulse and the noise buffer are generated.
  */
@@ -47,10 +51,13 @@ export class AudioEngine {
   voiceBus: GainNode;
   reverbSend: GainNode;
   noiseBuffer: AudioBuffer;
+  /** Short stereo early-reflection room (weapon slapback / width). */
+  roomSend: GainNode;
 
   /** Final output stages. */
   private compressor: DynamicsCompressorNode;
   private limiter: DynamicsCompressorNode;
+  private clipper: WaveShaperNode;
   /** Lowpass applied to the sfx bus during slow-mo. */
   private slowFilter: BiquadFilterNode;
   /** Music ducking stage (separate from the user music volume on musicBus). */
@@ -63,33 +70,53 @@ export class AudioEngine {
   private unlocked = false;
   private chains = new WeakMap<GainNode, AudioNode[]>();
   private duckUntil = 0;
+  private duckTarget = 1;
   private timeScale = 1;
 
-  constructor() {
-    const ctx = createContext();
+  /** `ctx` is only for offline rendering / tests; the game uses the default. */
+  constructor(ctx: AudioContext = createContext()) {
     this.ctx = ctx;
 
     // --- master chain ---
     this.master = ctx.createGain();
     this.master.gain.value = 0.9;
 
+    const dc = ctx.createBiquadFilter();
+    dc.type = 'highpass';
+    dc.frequency.value = 22;
+    dc.Q.value = 0.6;
+
+    // glue: medium ratio, attack slow enough to let gun transients punch through
     this.compressor = ctx.createDynamicsCompressor();
-    this.compressor.threshold.value = -16;
-    this.compressor.knee.value = 10;
-    this.compressor.ratio.value = 5;
-    this.compressor.attack.value = 0.003;
-    this.compressor.release.value = 0.18;
+    this.compressor.threshold.value = -18;
+    this.compressor.knee.value = 8;
+    this.compressor.ratio.value = 3.2;
+    this.compressor.attack.value = 0.006;
+    this.compressor.release.value = 0.16;
+    const makeup = ctx.createGain();
+    makeup.gain.value = 1.75;
 
     this.limiter = ctx.createDynamicsCompressor();
-    this.limiter.threshold.value = -2.5;
+    this.limiter.threshold.value = -2;
     this.limiter.knee.value = 0;
     this.limiter.ratio.value = 20;
     this.limiter.attack.value = 0.001;
-    this.limiter.release.value = 0.08;
+    this.limiter.release.value = 0.06;
 
-    this.master.connect(this.compressor);
-    this.compressor.connect(this.limiter);
-    this.limiter.connect(ctx.destination);
+    // final soft clipper: linear to 0.7, then tanh knee to an asymptote of 0.98
+    const pre = ctx.createGain();
+    pre.gain.value = 0.5; // curve domain [-1,1] represents [-2,2]
+    this.clipper = ctx.createWaveShaper();
+    this.clipper.curve = AudioEngine.clipCurve();
+    this.clipper.oversample = '2x';
+
+    this.master.connect(dc);
+    dc.connect(this.compressor);
+    this.compressor.connect(makeup);
+    makeup.connect(this.limiter);
+    this.limiter.connect(pre);
+    pre.connect(this.clipper);
+    this.clipper.connect(ctx.destination);
 
     // --- buses ---
     this.sfxBus = ctx.createGain();
@@ -98,7 +125,10 @@ export class AudioEngine {
     this.slowFilter.frequency.value = 22000;
     this.slowFilter.Q.value = 0.7;
     this.sfxBus.connect(this.slowFilter);
-    this.slowFilter.connect(this.master);
+    const sfxTrim = ctx.createGain();
+    sfxTrim.gain.value = 0.7; // layered sfx are hot; keep the glue comp from crushing them
+    this.slowFilter.connect(sfxTrim);
+    sfxTrim.connect(this.master);
 
     this.musicBus = ctx.createGain();
     this.musicBus.gain.value = 0.55;
@@ -123,11 +153,61 @@ export class AudioEngine {
     this.convolver.connect(this.reverbReturn);
     this.reverbReturn.connect(this.master);
 
+    // --- short room (early reflections, wide stereo) ---
+    this.roomSend = ctx.createGain();
+    const roomHp = ctx.createBiquadFilter();
+    roomHp.type = 'highpass';
+    roomHp.frequency.value = 140;
+    const room = ctx.createConvolver();
+    room.buffer = this.makeRoom(0.42);
+    const roomReturn = ctx.createGain();
+    roomReturn.gain.value = 0.5;
+    this.roomSend.connect(roomHp);
+    roomHp.connect(room);
+    room.connect(roomReturn);
+    roomReturn.connect(this.master);
+
     // --- shared buffers ---
     this.noiseBuffer = this.makeNoise(2);
   }
 
   // ---------------------------------------------------------------- buffers
+
+  private static clipCurve(): Float32Array<ArrayBuffer> {
+    const n = 4096;
+    const c = new Float32Array(n);
+    const knee = 0.7;
+    const room = 0.98 - knee;
+    for (let i = 0; i < n; i++) {
+      const x = ((i / (n - 1)) * 2 - 1) * 2;
+      const a = Math.abs(x);
+      const y = a <= knee ? a : knee + room * Math.tanh((a - knee) / room);
+      c[i] = x < 0 ? -y : y;
+    }
+    return c;
+  }
+
+  /** Dense, short stereo early reflections: concrete/metal room slap. */
+  private makeRoom(seconds: number): AudioBuffer {
+    const rate = this.ctx.sampleRate;
+    const len = Math.floor(rate * seconds);
+    const buf = this.ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const t = i / rate;
+        lp += 0.55 * (Math.random() * 2 - 1 - lp);
+        d[i] = lp * Math.exp(-t / 0.07) * 0.5 * (t < 0.004 ? t / 0.004 : 1);
+      }
+      for (let k = 0; k < 14; k++) {
+        const tt = 0.005 + Math.pow(Math.random(), 1.4) * 0.09 + ch * 0.0017;
+        const idx = Math.floor(tt * rate);
+        if (idx < len) d[idx] += (Math.random() < 0.5 ? -1 : 1) * (0.9 - tt * 7) * 0.8;
+      }
+    }
+    return buf;
+  }
 
   private makeNoise(seconds: number): AudioBuffer {
     const len = Math.floor(this.ctx.sampleRate * seconds);
@@ -281,13 +361,17 @@ export class AudioEngine {
       const g = this.duckGain.gain;
       const until = t + Math.max(0.02, time);
       // never weaken an in-progress deeper duck
-      if (until < this.duckUntil && g.value < target) return;
-      this.duckUntil = until;
+      if (t < this.duckUntil && this.duckTarget <= target && until <= this.duckUntil + 0.05) return;
+      const deeper = t < this.duckUntil ? Math.min(target, this.duckTarget) : target;
+      this.duckUntil = Math.max(until, t < this.duckUntil ? this.duckUntil : 0);
+      this.duckTarget = deeper;
+      const cur = g.value;
       g.cancelScheduledValues(t);
-      g.setValueAtTime(g.value, t);
-      g.linearRampToValueAtTime(target, t + 0.015);
-      g.setValueAtTime(target, until);
-      g.linearRampToValueAtTime(1, until + 0.35);
+      g.setValueAtTime(cur, t);
+      // fast dip (punch), short hold, smooth musical recovery
+      g.linearRampToValueAtTime(Math.min(cur, deeper), t + 0.008);
+      g.setValueAtTime(deeper, this.duckUntil);
+      g.setTargetAtTime(1, this.duckUntil, 0.11);
     } catch {
       /* ignore */
     }
