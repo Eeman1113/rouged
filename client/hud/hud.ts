@@ -309,7 +309,19 @@ export class Hud {
     const lanceShake = this.weapon === 'lance' && this.charge > 0.5 ? (Math.random() - 0.5) * this.charge * 4 * scale : 0;
     const gloryDrop = this.gloryT < 0.5 ? Math.sin((this.gloryT / 0.5) * Math.PI) * 60 * scale : 0;
     const ww = sp.w * scale, wh = sp.h * scale;
-    g.drawImage(img, Math.round(W / 2 - ww / 2 + bx + lanceShake + W * 0.16), Math.round(H - wh + by + raise * wh * 0.6 + gloryDrop + 4 * scale), ww, wh);
+    // Valorant-style: held low on the right, canted so the barrel points at the crosshair.
+    // Pivot = the grip (bottom-centre of the sprite); the muzzle is the sprite's top-centre.
+    const px = W / 2 + W * 0.17 + bx + lanceShake;
+    const py = H + wh * 0.06 + by + raise * wh * 0.6 + gloryDrop;
+    const muzzleDist = wh * 1.1;
+    const aimAngle = Math.atan2((W / 2) - px, py - (H / 2 + 4 * scale)); // < 0 → lean left
+    const cant = aimAngle * 0.78 + this.kick * 0.035 - bx * 0.0004;
+    void muzzleDist;
+    g.save();
+    g.translate(Math.round(px), Math.round(py));
+    g.rotate(cant);
+    g.drawImage(img, -Math.round(ww / 2), -Math.round(wh), ww, wh);
+    g.restore();
 
     // ── crosshair
     const cx = Math.round(W / 2), cy = Math.round(H / 2);
