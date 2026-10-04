@@ -44,9 +44,55 @@ export const DASH_TIME = 0.16; // s
 export const PLAYER_RADIUS = 0.4;
 export const PLAYER_HEIGHT = 1.8;
 export const EYE_HEIGHT = 1.6;
-export const SLIDE_EYE_HEIGHT = 1.0;
-export const SLIDE_TIME = 0.45;
-export const SLIDE_BOOST = 1.25;
+export const SLIDE_EYE_HEIGHT = 0.85;
+export const SLIDE_TIME = 0.9; // s, max power-slide duration (ends earlier if speed bleeds off)
+export const SLIDE_BOOST = 1.25; // legacy multiplier (kept for reference)
+
+// ── movement feel (shared/physics.ts) ──
+export const SPRINT_MULT = 1.35; // sprint speed = run × this (forward-ish only, no stamina)
+export const CROUCH_MULT = 0.5; // crouch-walk speed = run × this
+export const CROUCH_HEIGHT = 1.1; // m, crouch / slide collision height (server hitboxes stay full height)
+export const CROUCH_EYE_HEIGHT = 1.0;
+export const GROUND_ACCEL = 130; // m/s², 0→run in ~70ms
+export const GROUND_DECEL = 85; // m/s², release → stop in ~0.1s
+export const OVERSPEED_DECAY = 4; // 1/s, excess over max ground speed bleeds exponentially
+export const SPRINT_OUT_DECEL = 40; // m/s², sprint → run speed drop (~80ms)
+export const OVERSPEED_STEER = 9; // 1/s, steering rate while carrying extra momentum on ground
+export const AIR_STEER = 6; // × airControl, 1/s (exponential turn toward the stick, speed-preserving)
+export const AIR_ACCEL = 50; // × airControl, m/s² up to run/sprint speed in the air
+export const AIR_STRAFE_SPEED = 1.2; // m/s, Quake-style air-strafe wish cap (lets you curve-gain a little)
+export const AIR_STRAFE_ACCEL = 40; // m/s²
+export const AIR_BRAKE = 22; // m/s², pulling back against your velocity in the air
+export const FALL_GRAVITY_MULT = 1.12; // slightly heavier on the way down = snappier arcs
+export const COYOTE_TIME = 0.1; // s
+export const JUMP_BUFFER = 0.12; // s
+export const JUMP_CUT = 0.5; // release early: vy × this
+export const JUMP_CUT_MIN = 0.42; // ... but never below jumpV × this
+export const BHOP_TIMED_GAIN = 1.05; // freshly-timed hop on landing frame
+export const BHOP_CAP_MULT = 1.9; // × run, no hop / strafe gains past this
+export const LAND_HARD_SPEED = 17; // m/s impact → brief recovery
+export const LAND_RECOVER_TIME = 0.12; // s at 85% max speed
+export const SLIDE_MIN_SPEED_MULT = 0.7; // × run to start a slide
+export const SLIDE_END_SPEED_MULT = 0.6; // × run, slide ends below this
+export const SLIDE_BOOST_ADD = 3.6; // m/s added on a sprint slide (60% on a run slide)
+export const SLIDE_BOOST_CAP_MULT = 1.8; // × run, boost never pushes past this
+export const SLIDE_COOLDOWN = 0.9; // s between boosted slides (no infinite boost spam)
+export const SLIDE_FRICTION = 3; // m/s² at slide start ...
+export const SLIDE_FRICTION_RAMP = 20; // ... + this × progress² (downhill-style curve)
+export const SLIDE_STEER = 1.6; // rad/s
+export const SLIDE_MIN_TIME = 0.12; // s before releasing crouch cancels the slide
+export const DASH_EXIT_MULT = 1.0; // × sprint speed kept after a dash
+export const DASH_JUMP_KEEP_MULT = 1.9; // × run kept on a dash-jump
+export const MANTLE_MIN = 0.3; // m above feet (below: step-up handles it)
+export const MANTLE_REACH = 1.6; // m above feet at the moment of contact
+export const MANTLE_MAX_HEIGHT = 1.75; // m above the ground you jumped from (chest-high)
+export const MANTLE_WAIST = 0.9; // m above feet: always mantleable (catching ledges mid-fall)
+export const MANTLE_TIME = 0.14; // s base ...
+export const MANTLE_TIME_PER_M = 0.1; // ... + per metre climbed
+export const WALL_JUMP_PUSH = 7.5; // m/s off the wall
+export const WALLRUN_GRAVITY = 0.12; // × gravity while wall-running
+export const STEP_UP = 0.55; // m (ground)
+export const STEP_DOWN = 0.4; // m ground snap so stairs/edges don't make you airborne
 
 // ═══════════════════════════════════════════════════════
 // COMBAT
@@ -76,6 +122,7 @@ export const LANCE_MAX_DMG = 200;
 export const LANCE_CHARGE_TIME = 1.1; // s to full
 export const RIPPER_DPS = 40;
 export const RIPPER_RANGE = 2.6;
+export const RELOAD_TIME = { pulse: 1.15, breacher: 0.95, lance: 1.35, ripper: 0.9 } as const; // s
 
 // ═══════════════════════════════════════════════════════
 // ENEMIES (Normal difficulty)

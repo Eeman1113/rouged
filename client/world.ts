@@ -81,6 +81,7 @@ export class World {
     this.input.sensitivity = s.sensitivity;
     this.input.invertY = s.invertY;
     this.input.padSens = s.padSens;
+    this.input.sprintToggle = s.sprintToggle;
     this.input.gyroMode = s.gyro;
     this.input.gyroSens = s.gyroSens;
     audio.setVolume(s.master, s.music, s.sfx);
@@ -165,11 +166,21 @@ export class World {
       p.yaw += d * Math.min(1, dt * 14);
       p.pitch += (wantPitch - p.pitch) * Math.min(1, dt * 14);
     }
-    const bobY = Math.sin(p.bobT * 2) * 0.045 * p.bobAmt;
-    cam.position.set(p.x, p.y + p.eyeY - p.landDip + bobY, p.z);
-    cam.rotation.set(p.pitch + this.r.shakeY, p.yaw + this.r.shakeX, p.roll);
-    const targetFov = this.fovBase + p.fovKick * 14 + Math.min(10, Math.max(0, speed - 9) * 0.8);
-    cam.fov += (targetFov - cam.fov) * Math.min(1, dt * 10);
+    void speed; // speed-based FOV now lives in LocalPlayer.fovAdd (springs)
+    // motion comfort: the screen-shake setting also scales head bob / sway (0 = none)
+    const mk = Math.max(0, Math.min(1, this.shakeMult));
+    const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
+    const sway = p.bobX * mk;
+    cam.position.set(
+      p.x + rx * sway,
+      p.y + p.eyeY + p.stepOff - p.landDip + p.bobY * mk,
+      p.z + rz * sway,
+    );
+    const pitch = Math.max(-1.55, Math.min(1.55, p.pitch + p.pitchOff * Math.max(0.35, mk)));
+    cam.rotation.set(pitch + this.r.shakeY, p.yaw + this.r.shakeX, p.roll * Math.max(0.35, mk) + p.bobRoll * mk);
+    const targetFov = Math.max(40, Math.min(150, this.fovBase + p.fovAdd));
+    // springs already smooth the motion FOV; this only eases settings changes / big jumps
+    cam.fov += (targetFov - cam.fov) * (1 - Math.exp(-dt * 30));
     // vertical fov from horizontal-ish setting: treat setting as vertical-at-4:3
     cam.updateProjectionMatrix();
     audio.setListener({ x: cam.position.x, y: cam.position.y, z: cam.position.z }, p.yaw);

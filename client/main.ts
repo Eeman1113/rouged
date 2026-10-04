@@ -238,9 +238,10 @@ class App {
           <div class="k">AIM</div><div class="v">MOUSE</div>
           <div class="k">FIRE / CHARGE LANCE</div><div class="v">LMB (HOLD)</div>
           <div class="k">GLORY KILL</div><div class="v">F / RMB</div>
-          <div class="k">JUMP (HOLD = BHOP)</div><div class="v">SPACE</div>
-          <div class="k">DASH</div><div class="v">SHIFT</div>
-          <div class="k">SLIDE</div><div class="v">CTRL / C</div>
+          <div class="k">SPRINT (HOLD)</div><div class="v">SHIFT</div>
+          <div class="k">JUMP (HOLD = BHOP) · MANTLE</div><div class="v">SPACE</div>
+          <div class="k">CROUCH · SLIDE</div><div class="v">CTRL / C</div>
+          <div class="k">DASH</div><div class="v">ALT / V / MOUSE 4-5</div>
           <div class="k">USE / TAKE POWERUP</div><div class="v">E</div>
           <div class="k">WEAPONS</div><div class="v">1-4 · WHEEL · Q</div>
           <div class="k">PAUSE</div><div class="v">ESC</div>
@@ -250,11 +251,12 @@ class App {
           <div class="k">FIRE</div><div class="v">R2</div>
           <div class="k">FOCUS AIM + GLORY</div><div class="v">L2</div>
           <div class="k">GLORY KILL</div><div class="v">R3</div>
-          <div class="k">JUMP (HOLD = BHOP)</div><div class="v">✕</div>
-          <div class="k">SLIDE</div><div class="v">◯</div>
+          <div class="k">SPRINT (TOGGLE)</div><div class="v">L3</div>
+          <div class="k">JUMP (HOLD = BHOP) · MANTLE</div><div class="v">✕</div>
+          <div class="k">CROUCH · SLIDE</div><div class="v">◯</div>
           <div class="k">USE / TAKE POWERUP</div><div class="v">□</div>
           <div class="k">LAST WEAPON / NEXT</div><div class="v">△ / R1</div>
-          <div class="k">DASH</div><div class="v">L1 / L3</div>
+          <div class="k">DASH</div><div class="v">L1</div>
           <div class="k">PULSE · BREACHER · LANCE · RIPPER</div><div class="v">D-PAD ↑ → ↓ ←</div>
           <div class="k">PAUSE</div><div class="v">OPTIONS / TOUCHPAD</div>
         </div></div>
@@ -663,6 +665,7 @@ class App {
         <label class="field">SFX<input id="s-sfx" type="range" min="0" max="1" step="0.05" value="${s.sfx}"/></label>
         <label class="field">SCREEN SHAKE<input id="s-shake" type="range" min="0" max="1.5" step="0.05" value="${s.shake}"/></label>
         <label class="field">HANDLER VOICE<select id="s-voice"><option value="1" ${s.voice ? 'selected' : ''}>ON</option><option value="0" ${!s.voice ? 'selected' : ''}>SUBTITLES ONLY</option></select></label>
+        <label class="field">SPRINT (KEYBOARD)<select id="s-sprint"><option value="0" ${!s.sprintToggle ? 'selected' : ''}>HOLD SHIFT</option><option value="1" ${s.sprintToggle ? 'selected' : ''}>TOGGLE</option></select></label>
         <label class="field">INVERT Y<select id="s-inv"><option value="0" ${!s.invertY ? 'selected' : ''}>OFF</option><option value="1" ${s.invertY ? 'selected' : ''}>ON</option></select></label>
       </div>
       <h3>CONTROLLER</h3>
@@ -689,6 +692,7 @@ class App {
       s.shake = Number(q<HTMLInputElement>('s-shake').value);
       s.voice = q<HTMLSelectElement>('s-voice').value === '1';
       s.invertY = q<HTMLSelectElement>('s-inv').value === '1';
+      s.sprintToggle = q<HTMLSelectElement>('s-sprint').value === '1';
       s.padSens = Number(q<HTMLInputElement>('s-pads').value);
       s.aimAssist = Number(q<HTMLInputElement>('s-aa').value);
       s.rumble = Number(q<HTMLInputElement>('s-rum').value);

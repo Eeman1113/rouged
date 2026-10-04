@@ -263,6 +263,7 @@ export type ClientMsg =
   | { t: 'begin' }
   | { t: 'ripper'; on: boolean }
   | { t: 'buy'; slot: number }
+  | { t: 'reload'; weapon: WeaponId }
   | { t: 'shrine' }
   | { t: 'ping'; c: number };
 

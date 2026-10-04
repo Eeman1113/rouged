@@ -32,6 +32,8 @@ export class SimPlayer {
   phoenixUsed = false;
   reaperRefill = false;
   wasDashing = false;
+  reloadW: WeaponId | null = null;
+  reloadT = 0;
   dashHit = new Set<number>();
   lastOffer: string[] = [];
   pityCount = 0;

@@ -106,6 +106,21 @@ There are seven Wardens, each with several phases. **THE SMELTER · THE CURATOR 
 
 <br/>
 
+## `> ARMORY` — FOUR WEAPONS, ALL AT ONCE
+
+<p align="center"><img src="docs/media/arsenal.jpg" width="100%"/></p>
+
+You carry all four weapons at once, and switching is instant. Each one is drawn as a hand-animated 3/4-view viewmodel, with its own reload, inspect and recoil, plus a sprint pose.
+
+| | WEAPON | FEEL |
+|:--|:--|:--|
+| `1` | **PULSE** | 480 rpm energy rifle. Your first shot always hits dead centre. Reload: the spent cell vents vapour and a fresh one is slapped in. |
+| `2` | **BREACHER** | Rusted double-barrel. It breaks open after every shot and the shells tumble out. Knocks enemies back hard. |
+| `3` | **LANCE** | Hold to charge. The coils light up one by one, and the beam pierces everything in its line. |
+| `4` | **RIPPER** | Chainsaw. Infinite fuel. Any staggered enemy it touches becomes a glory kill. |
+
+<br/>
+
 ## `> FILE 05` — THE DOPAMINE ENGINE
 
 > *"The shooting is the excuse. The feedback is the game."*
@@ -201,9 +216,11 @@ Every voice in ROUGED is **synthetic**: a speech engine shaped differently for e
 | Move | `W A S D` |
 | Fire / charge Lance | `LMB` hold |
 | Glory kill | `F` / `RMB` |
-| Jump (hold = bunny-hop) | `SPACE` |
-| Dash | `SHIFT` |
-| Slide | `CTRL` / `C` |
+| Sprint (hold) | `SHIFT` |
+| Jump (hold = bunny-hop, tap on landing = faster hop) | `SPACE` |
+| Mantle | `SPACE` / `W` into a waist-to-chest-high ledge |
+| Crouch · slide (while running / sprinting) | `CTRL` / `C` |
+| Dash | `ALT` / `V` / mouse side buttons |
 | Use / take | `E` |
 | Weapons | `1–4` · wheel · `Q` |
 | Pause | `ESC` |
@@ -217,16 +234,19 @@ Every voice in ROUGED is **synthetic**: a speech engine shaped differently for e
 | Fire | `R2` |
 | Focus aim + glory | `L2` |
 | Glory kill | `R3` |
+| Sprint (toggle, cancels when you stop) | `L3` |
 | Jump | `✕` |
-| Slide | `◯` |
+| Crouch · slide | `◯` |
 | Use / take | `□` |
 | Last / next weapon | `△` / `R1` |
-| Dash | `L1` / `L3` |
+| Dash | `L1` |
 | Weapons | `D-pad` |
 | Pause | `OPTIONS` / touchpad |
 
 </td></tr>
 </table>
+
+**Movement:** sprint into a crouch for a power slide, jump out of it to keep the speed (slide-hopping), dash-jump to carry the burst. Jumps have coyote time and buffering; release jump early for a short hop. Firing drops you out of sprint instantly. On touch, push the move stick to the rim to sprint.
 
 **Pro mode** (Chrome or Edge, **Controls → Enable Pro Features**, over USB or Bluetooth) adds:
 - **Adaptive triggers** that change per weapon: PULSE chatters, BREACHER has a hammer break, LANCE gets tighter as it charges, RIPPER growls.

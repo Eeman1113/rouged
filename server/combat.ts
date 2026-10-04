@@ -12,6 +12,7 @@ const MUT_SCORE: Record<string, number> = { darkness: 1.5, overclock: 1.4, lowgr
 
 export function handleShot(run: Run, p: SimPlayer, m: ShotMsg) {
   if (!p.alive || !p.unlocked.includes(m.weapon)) return;
+  if (p.reloadW === m.weapon) return; // mid-reload
   const def = WEAPONS[m.weapon];
   if (def.kind === 'melee') return;
   const rate = p.mods.fireRateMult * (p.overclockT > 0 ? 2 : 1);

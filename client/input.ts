@@ -1,12 +1,15 @@
 // Keyboard + mouse (pointer lock) + touch + gamepad/DualSense, unified into one per-frame state.
 import { Pad, BTN } from './gamepad';
 
-export type Action = 'fwd' | 'back' | 'left' | 'right' | 'jump' | 'dash' | 'slide' | 'fire' | 'use' | 'glory' | 'w1' | 'w2' | 'w3' | 'w4' | 'wnext' | 'wprev' | 'wlast' | 'pause' | 'stats';
+export type Action = 'fwd' | 'back' | 'left' | 'right' | 'jump' | 'dash' | 'slide' | 'sprint' | 'sprintT' | 'fire' | 'use' | 'glory' | 'reload' | 'inspect' | 'w1' | 'w2' | 'w3' | 'w4' | 'wnext' | 'wprev' | 'wlast' | 'pause' | 'stats';
 
 const KEYMAP: Record<string, Action> = {
   KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
-  Space: 'jump', ShiftLeft: 'dash', ShiftRight: 'dash', ControlLeft: 'slide', KeyC: 'slide', ControlRight: 'slide',
-  KeyE: 'use', KeyF: 'glory', KeyV: 'glory', Digit1: 'w1', Digit2: 'w2', Digit3: 'w3', Digit4: 'w4', KeyQ: 'wlast',
+  // movement: Shift = sprint (hold, or toggle via Input.sprintToggle), Ctrl/C = crouch · slide, Alt/V/Mouse4-5 = dash
+  Space: 'jump', ShiftLeft: 'sprint', ShiftRight: 'sprint', ControlLeft: 'slide', KeyC: 'slide', ControlRight: 'slide',
+  AltLeft: 'dash', AltRight: 'dash', KeyV: 'dash',
+  KeyE: 'use', KeyF: 'glory', Digit1: 'w1', Digit2: 'w2', Digit3: 'w3', Digit4: 'w4', KeyQ: 'wlast',
+  KeyR: 'reload', KeyT: 'inspect',
   Escape: 'pause', KeyP: 'pause', Tab: 'stats',
 };
 
@@ -45,19 +48,22 @@ export class Input {
   private padMoveY = 0;
   private lastKbm = 0;
   stickY = 0;
+  /** keyboard sprint mode: false = hold Shift, true = tap Shift to toggle (auto-cancels when you stop) */
+  sprintToggle = false;
 
   constructor(canvas: HTMLElement, private touchRoot: HTMLElement) {
     this.canvas = canvas;
     window.addEventListener('keydown', (e) => {
       this.lastKbm = performance.now();
       const a = KEYMAP[e.code];
-      if (e.code === 'Tab' || e.code === 'Space' || (e.ctrlKey && e.code !== 'ControlLeft')) e.preventDefault();
+      if (e.code === 'Tab' || e.code === 'Space' || e.code === 'AltLeft' || e.code === 'AltRight' || (e.ctrlKey && e.code !== 'ControlLeft')) e.preventDefault();
       if (!a) return;
       if (a === 'pause') { if (!e.repeat) this.onPause(); return; }
       if (!this.held.has(a)) this.pressed.add(a);
       this.held.add(a);
     });
     window.addEventListener('keyup', (e) => {
+      if (e.code === 'AltLeft' || e.code === 'AltRight') e.preventDefault(); // no browser menu-bar focus
       const a = KEYMAP[e.code];
       if (!a) return;
       this.held.delete(a);
@@ -69,10 +75,12 @@ export class Input {
       if (e.button === 0) { this.pressed.add('fire'); this.held.add('fire'); }
       if (e.button === 2) { this.pressed.add('glory'); this.held.add('glory'); }
       if (e.button === 1) { this.pressed.add('use'); }
+      if (e.button === 3 || e.button === 4) { e.preventDefault(); this.pressed.add('dash'); } // side buttons dash
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) { this.held.delete('fire'); this.released.add('fire'); }
       if (e.button === 2) { this.held.delete('glory'); this.released.add('glory'); }
+      if ((e.button === 3 || e.button === 4) && this.locked) e.preventDefault(); // don't navigate back/forward
     });
     window.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('wheel', (e) => {
@@ -125,6 +133,13 @@ export class Input {
     return { fwd: Math.max(-1, Math.min(1, f)), right: Math.max(-1, Math.min(1, r)) };
   }
 
+  /** Sprint intent for this frame: `hold` = sprint while true, `toggle` = flip the latched sprint. */
+  sprintInput(): { hold: boolean; toggle: boolean } {
+    const touchAuto = this.touchMode && this.stickY < -0.85; // touch: push the stick to the rim to sprint
+    if (this.sprintToggle) return { hold: touchAuto, toggle: this.pressed.has('sprint') || this.pressed.has('sprintT') };
+    return { hold: this.held.has('sprint') || touchAuto, toggle: this.pressed.has('sprintT') };
+  }
+
   consumeLook(): { dx: number; dy: number } {
     const k = 0.0022 * this.sensitivity;
     const out = { dx: this.dx * k + this.padLookX, dy: this.dy * k * (this.invertY ? -1 : 1) + this.padLookY * (this.invertY ? -1 : 1) };
@@ -140,7 +155,7 @@ export class Input {
     if (this.pad.lastActive > this.lastKbm) this.padActive = true; else if (this.lastKbm > this.pad.lastActive) this.padActive = false;
     if (!gameplay) { for (const a of this.padHeld) { this.held.delete(a); } this.padHeld.clear(); this.padMoveX = this.padMoveY = 0; return; }
     const map: [number, Action][] = [
-      [BTN.CROSS, 'jump'], [BTN.CIRCLE, 'slide'], [BTN.L1, 'dash'], [BTN.L3, 'dash'], [BTN.R2, 'fire'],
+      [BTN.CROSS, 'jump'], [BTN.CIRCLE, 'slide'], [BTN.L1, 'dash'], [BTN.L3, 'sprintT'], [BTN.R2, 'fire'],
       [BTN.SQUARE, 'use'], [BTN.R3, 'glory'], [BTN.L2, 'glory'], [BTN.R1, 'wnext'], [BTN.TRIANGLE, 'wlast'],
       [BTN.UP, 'w1'], [BTN.RIGHT, 'w2'], [BTN.DOWN, 'w3'], [BTN.LEFT, 'w4'],
     ];

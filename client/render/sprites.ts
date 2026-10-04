@@ -174,3 +174,12 @@ export function getFoliageSprite(v: number): HTMLCanvasElement {
   const k = ((Math.floor(v || 0) % 6) + 6) % 6;
   return memo(`foliage:${k}`, () => buildFoliage(k));
 }
+
+// ------------------------------------------------------------------ 3D-posed viewmodels
+// First-person weapons are posed rigs ray-cast to pixel art (see art/viewmodel3d.ts); frames are
+// LRU-cached per pose inside art/viewmodelRigs.ts.
+export {
+  getRig as getViewmodelRig, getFrame as getViewmodelFrame, getFist as getFistFrame, frameCount as viewmodelFrameCount,
+  vmFx as viewmodelFx, VM_VFOV, FIST_FRAMES,
+} from './art/viewmodelRigs';
+export type { Frame as ViewmodelFrame } from './art/viewmodel3d';

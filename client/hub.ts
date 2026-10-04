@@ -65,11 +65,12 @@ export class Hub {
       lp.yaw -= look.dx;
       lp.pitch = Math.max(-1.45, Math.min(1.45, lp.pitch - look.dy));
       const ax = inp.axes();
-      const ev = lp.update(dt, { fwd: ax.fwd, right: ax.right, jump: inp.held.has('jump'), dash: inp.pressed.has('dash'), crouch: inp.held.has('slide') }, 1);
+      const sp = inp.sprintInput();
+      const ev = lp.update(dt, { fwd: ax.fwd, right: ax.right, jump: inp.held.has('jump'), dash: inp.pressed.has('dash'), crouch: inp.held.has('slide'), sprint: sp.hold, sprintToggle: sp.toggle }, 1);
       if (ev.footstep) sfx.footstep();
       if (ev.jumped) sfx.jump();
       if (ev.dashed) sfx.dash();
-      if (ev.landed) sfx.land(false);
+      if (ev.landed || ev.mantled) sfx.land(false);
     } else inp.consumeLook();
 
     // prompts

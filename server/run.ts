@@ -191,6 +191,9 @@ export class Run {
       case 'ripper': p.ripperOn = msg.on && p.unlocked.includes('ripper'); break;
       case 'pick': this.onPick(p, msg.slot); break;
       case 'buy': this.onBuy(p, msg.slot); break;
+      case 'reload':
+        if (p.alive && p.unlocked.includes(msg.weapon) && !p.reloadW) { p.reloadW = msg.weapon; p.reloadT = C.RELOAD_TIME[msg.weapon] * 0.92; }
+        break;
       case 'shrine': this.onShrine(p); break;
       case 'door': this.onDoor(p, msg.slot); break;
       case 'begin': if (this.state === 'lobby' && id === this.hostId) this.start(); break;
@@ -206,13 +209,21 @@ export class Run {
     if (p.unlocked.includes(m.weapon)) p.weapon = m.weapon;
     p.firing = m.firing;
     if (!p.alive || this.transitionT >= 0) return;
-    // validation: clamp implausible movement (client-predicted, server-sanity-checked)
+    // validation: clamp implausible movement (client-predicted, server-sanity-checked).
+    // Token bucket on horizontal travel: refills at the fastest legit speed (dash burst, or a
+    // sprint/slide/bhop chain at the bhop cap × speed mods, + knockback headroom) and banks ~0.4s,
+    // so late/bunched packets and client hitches pass but sustained teleporting is clamped.
+    const q = p as SimPlayer & { mvBudget?: number; mvT?: number };
+    const rate = Math.max(C.DASH_SPEED * 1.15, C.BASE_SPEED * C.BHOP_CAP_MULT * Math.max(1, p.mods.speedMult) * 1.25) + 6;
+    const bank = rate * 0.4 + 2;
+    q.mvBudget = Math.min(bank, (q.mvBudget ?? bank) + rate * Math.max(0, this.time - (q.mvT ?? this.time)));
+    q.mvT = this.time;
     const dx = m.x - p.x, dz = m.z - p.z, dy = m.y - p.y;
     const dist = Math.hypot(dx, dz);
-    const maxStep = 40 * (1 / 15) + 1.5;
-    if (dist > maxStep) {
-      p.x += (dx / dist) * maxStep; p.z += (dz / dist) * maxStep;
-    } else { p.x = m.x; p.z = m.z; }
+    if (dist > q.mvBudget) {
+      p.x += (dx / dist) * q.mvBudget; p.z += (dz / dist) * q.mvBudget;
+      q.mvBudget = 0;
+    } else { p.x = m.x; p.z = m.z; q.mvBudget -= dist; }
     p.y = Math.max(0, Math.min(20, p.y + Math.max(-15, Math.min(15, dy))));
     if (m.dashing && !p.dashing) p.dashes++;
     if (m.vy > 5 && p.vy <= 5) p.jumps++;
@@ -827,6 +838,11 @@ export class Run {
       if (p.ghostT > 0) p.ghostT -= dt;
       if (p.overclockT > 0) p.overclockT -= dt;
       if (!p.alive) continue;
+      // reloads: finish, or cancel if the player swapped away
+      if (p.reloadW) {
+        if (p.weapon !== p.reloadW) p.reloadW = null;
+        else if ((p.reloadT -= dt) <= 0) { p.ammo[p.reloadW] = 1; p.reloadW = null; p.privDirty = true; }
+      }
       // ammo regen
       for (const w of ['pulse', 'breacher', 'lance'] as WeaponId[]) {
         p.ammo[w] = Math.min(1, p.ammo[w] + C.AMMO_REGEN * p.mods.ammoRegenMult * dt);

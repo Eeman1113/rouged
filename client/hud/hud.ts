@@ -4,7 +4,7 @@ import type { Pedestal, Rarity, ShopItem, WeaponId } from '../../shared/protocol
 import { POWERUP_BY_ID, RARITY_COLOR } from '../../shared/powerupDefs';
 import { WEAPONS } from '../../shared/weaponDefs';
 import * as C from '../../shared/constants';
-import { getWeaponSprites } from '../render/sprites';
+import { Viewmodel, ViewMotion } from './viewmodel';
 import { KillFeed, esc } from './killfeed';
 import { Announcer } from './announcer';
 import { DamageNumbers } from './damageNumbers';
@@ -32,6 +32,10 @@ export class Hud {
   hitKill = false;
   hitHead = false;
   gloryT = 99;
+  /** First-person viewmodel (weapon + hands). */
+  vm = new Viewmodel();
+  /** Movement state for the viewmodel, filled by the game each frame (dashing, airborne, lookDX/DY, sprinting, crouching). */
+  motion: Partial<ViewMotion> = {};
   hpFrac = 1;
   visible = false;
   private handlerTimer = 0;
@@ -282,9 +286,16 @@ export class Hud {
     this.hitHead = head;
   }
 
-  weaponFire() { this.fireT = 0; this.kick = 1; if (this.weapon === 'breacher') this.extraT = -0.12; }
-  weaponSwitch(w: WeaponId) { if (w !== this.weapon) { this.weapon = w; this.switchT = 0; this.fireT = 99; this.extraT = 99; } }
-  glory() { this.gloryT = 0; }
+  weaponFire() { this.fireT = 0; this.kick = 1; if (this.weapon === 'breacher') this.extraT = -0.12; this.vm.fire(); }
+  weaponSwitch(w: WeaponId) { if (w !== this.weapon) { this.weapon = w; this.switchT = 0; this.fireT = 99; this.extraT = 99; this.vm.setWeapon(w); } }
+  glory() { this.gloryT = 0; this.vm.glory(); }
+  /** Full reload animation stretched to `duration` seconds. */
+  reload(duration: number) { this.vm.reload(duration); }
+  /** Weapon inspect (cancelled by fire / reload / switch). */
+  inspect() { this.vm.inspect(); }
+  get reloading(): boolean { return this.vm.reloading; }
+  /** Muzzle position on the HUD canvas for the current frame. */
+  muzzle(): { x: number; y: number } { return this.vm.muzzle(); }
 
   draw(dt: number, bob: { t: number; amt: number; land: number; sliding: boolean }) {
     if (!this.visible) return;
@@ -295,33 +306,16 @@ export class Hud {
     this.kick *= Math.max(0, 1 - dt * 14);
     this.face.update(dt);
 
-    // ── weapon viewmodel
-    const sp = getWeaponSprites(this.weapon);
-    const scale = Math.max(1, Math.round(H / 240));
-    let img = sp.idle;
-    if (this.weapon === 'lance' && this.charge > 0.02) img = sp.extra[Math.min(sp.extra.length - 1, Math.floor(this.charge * sp.extra.length))] ?? sp.idle;
-    if (this.weapon === 'ripper' && this.ripperOn) img = sp.extra[Math.floor(this.fireT * 30) % Math.max(1, sp.extra.length)] ?? sp.idle;
-    if (this.fireT < 0.12) img = sp.fire[Math.min(sp.fire.length - 1, Math.floor(this.fireT / 0.04))];
-    else if (this.weapon === 'breacher' && this.extraT > 0 && this.extraT < 0.45) img = sp.extra[Math.min(sp.extra.length - 1, Math.floor(this.extraT / 0.15))] ?? sp.idle;
-    const bx = Math.sin(bob.t) * 6 * bob.amt * scale;
-    const by = Math.abs(Math.cos(bob.t)) * 5 * bob.amt * scale + bob.land * 30 * scale + this.kick * 9 * scale + (bob.sliding ? 10 * scale : 0);
-    const raise = Math.max(0, 1 - this.switchT / 0.09);
-    const lanceShake = this.weapon === 'lance' && this.charge > 0.5 ? (Math.random() - 0.5) * this.charge * 4 * scale : 0;
-    const gloryDrop = this.gloryT < 0.5 ? Math.sin((this.gloryT / 0.5) * Math.PI) * 60 * scale : 0;
-    const ww = sp.w * scale, wh = sp.h * scale;
-    // Valorant-style: held low on the right, canted so the barrel points at the crosshair.
-    // Pivot = the grip (bottom-centre of the sprite); the muzzle is the sprite's top-centre.
-    const px = W / 2 + W * 0.17 + bx + lanceShake;
-    const py = H + wh * 0.06 + by + raise * wh * 0.6 + gloryDrop;
-    const muzzleDist = wh * 1.1;
-    const aimAngle = Math.atan2((W / 2) - px, py - (H / 2 + 4 * scale)); // < 0 → lean left
-    const cant = aimAngle * 0.78 + this.kick * 0.035 - bx * 0.0004;
-    void muzzleDist;
-    g.save();
-    g.translate(Math.round(px), Math.round(py));
-    g.rotate(cant);
-    g.drawImage(img, -Math.round(ww / 2), -Math.round(wh), ww, wh);
-    g.restore();
+    // ── weapon viewmodel (3D-posed pixel-art rig, see ./viewmodel.ts)
+    this.vm.setCharge(this.weapon === 'lance' ? this.charge : 0);
+    this.vm.setRipper(this.weapon === 'ripper' && this.ripperOn, this.weapon === 'ripper' && this.ripperOn);
+    const mo = this.motion;
+    this.vm.draw(g, W, H, dt, {
+      bobT: bob.t, bobAmt: bob.amt, land: bob.land, sliding: bob.sliding,
+      dashing: !!mo.dashing, airborne: !!mo.airborne, lookDX: mo.lookDX ?? 0, lookDY: mo.lookDY ?? 0,
+      sprinting: !!mo.sprinting, crouching: !!mo.crouching,
+    });
+    mo.lookDX = 0; mo.lookDY = 0;
 
     // ── crosshair
     const cx = Math.round(W / 2), cy = Math.round(H / 2);

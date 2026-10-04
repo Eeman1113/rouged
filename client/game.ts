@@ -107,6 +107,25 @@ export class Game {
   private tmpV = new THREE.Vector3();
   private dir = new THREE.Vector3();
   private killedIds = new Set<number>();
+  reloadT = 0;
+  reloadW: WeaponId = 'pulse';
+  lookDX = 0;
+  lookDY = 0;
+
+  /** R / □: full reload. Breacher reloads itself after each shot; this tops it up early. */
+  startReload() {
+    if (this.reloadT > 0 || !this.alive || this.charging) return;
+    const wid = this.weapon;
+    if (wid !== 'ripper' && this.ammo[wid] >= 0.999) return;
+    const dur = C.RELOAD_TIME[wid];
+    this.reloadT = dur;
+    this.reloadW = wid;
+    vm(this.world.hud).reload?.(dur);
+    if (wid !== 'ripper') this.net.send({ t: 'reload', weapon: wid });
+    sfx.weaponSwitch();
+    if (wid === 'breacher') setTimeout(() => sfx.breacherReload(), dur * 450);
+    this.rumble(0.15, 0.3, 120);
+  }
   cinematic = false;
   private hazardFx = 0;
   private lastPhase = 1;
@@ -911,7 +930,7 @@ export class Game {
     const def = WEAPONS[this.weapon];
     const rateMult = this.mods.fireRateMult * (this.overclockT > 0 ? 2 : 1);
     this.fireCd -= dt;
-    const held = inp.held.has('fire') && !this.paused;
+    const held = inp.held.has('fire') && !this.paused && this.reloadT <= 0;
 
     if (def.kind === 'melee') {
       if (held && !this.ripperOn) {
@@ -959,6 +978,7 @@ export class Game {
       const cost = def.ammoCost;
       if (this.ammo[this.weapon] < cost) {
         if (inp.pressed.has('fire')) sfx.dryFire();
+        this.startReload(); // empty: reload automatically
         return;
       }
       this.shoot(def.id, 1);
@@ -1050,6 +1070,12 @@ export class Game {
     const scale = this.net.local ? w.timeScale : 1;
     const fxDt = dt * w.timeScale;
     this.whisperCd -= dt;
+    if (this.reloadT > 0) {
+      this.reloadT -= dt;
+      if (this.reloadT <= 0) { this.ammo[this.reloadW] = 1; sfx.weaponSwitch(); }
+    }
+    if (inp.pressed.has('reload')) this.startReload();
+    if (inp.pressed.has('inspect') && this.reloadT <= 0) vm(w.hud).inspect?.();
     this.overclockT -= dt;
     this.streakT -= dt;
     this.gloryCooldown -= dt;
@@ -1058,6 +1084,7 @@ export class Game {
     // look
     if (!this.paused) {
       const look = inp.consumeLook();
+      this.lookDX = look.dx; this.lookDY = look.dy;
       if (w.lookLockT <= 0) {
         lp.yaw -= look.dx;
         lp.pitch = Math.max(-1.45, Math.min(1.45, lp.pitch - look.dy));
@@ -1068,6 +1095,7 @@ export class Game {
     // weapon select (instant, no lockout)
     const unlocked = this.priv?.unlockedWeapons ?? unlockedFor(this.level);
     const select = (wid: WeaponId) => {
+      if (wid !== this.weapon && this.reloadT > 0) this.reloadT = 0; // switching cancels the reload
       if (!unlocked.includes(wid) || wid === this.weapon) return;
       this.lastWeapon = this.weapon;
       this.weapon = wid;
@@ -1090,10 +1118,20 @@ export class Game {
     const alive = this.alive && this.started;
     if (alive && !this.paused) {
       const ax = inp.axes();
-      const ev = lp.update(dt, { fwd: ax.fwd, right: ax.right, jump: inp.held.has('jump'), dash: inp.pressed.has('dash'), crouch: inp.held.has('slide') }, scale);
-      if (ev.jumped) sfx.jump();
+      // firing (or charging / revving the Ripper) snaps you out of sprint instantly; no shot delay
+      if (inp.held.has('fire') || inp.pressed.has('fire') || this.charging || this.ripperOn) lp.suppressSprint();
+      const sp = inp.sprintInput();
+      const ev = lp.update(dt, { fwd: ax.fwd, right: ax.right, jump: inp.held.has('jump'), dash: inp.pressed.has('dash'), crouch: inp.held.has('slide'), sprint: sp.hold, sprintToggle: sp.toggle }, scale);
+      if (ev.jumped) { sfx.jump(); if (ev.wallJump) this.rumble(0.2, 0.4, 70); }
+      if (ev.bhop) this.rumble(0, 0.18, 30);
       if (ev.dashed) { sfx.dash(); w.shake(2); this.rumble(0.15, 0.55, 90); }
-      if (ev.landed) { sfx.land(ev.landed > 12); if (ev.landed > 9) this.rumble(Math.min(0.7, ev.landed / 25), 0.1, 90); }
+      if (ev.landed) {
+        sfx.land(ev.landed > 12);
+        if (ev.landed > 9) this.rumble(Math.min(0.7, ev.landed / 25), 0.1, 90);
+        if (ev.landed > 14 && !ev.jumped) w.shake(Math.min(7, (ev.landed - 12) * 0.7));
+      }
+      if (ev.mantled) { sfx.land(false); this.rumble(0.12, 0.3, 80); }
+      if (ev.sprintStart) this.rumble(0, 0.12, 35);
       if (ev.footstep) sfx.footstep();
       if (ev.slideStart && !this.slideLoop) { this.slideLoop = sfx.slide(); }
       if (lp.s.slideT <= 0 && this.slideLoop) { this.slideLoop.stop(); this.slideLoop = null; }
@@ -1154,6 +1192,7 @@ export class Game {
     const speed = Math.hypot(lp.s.vx, lp.s.vz);
     w.updateCamera(dt, speed);
     w.hud.pops.update(dt, w.r.camera);
+    { const m = vm(w.hud).motion; if (m) { m.dashing = lp.s.dashT > 0; m.sprinting = lp.sprinting; m.mantling = lp.mantling; m.crouching = lp.crouching; m.airborne = !lp.s.onGround; m.lookDX = this.lookDX; m.lookDY = this.lookDY; } }
     w.hud.draw(fxDt, { t: lp.bobT, amt: lp.bobAmt, land: lp.landDip, sliding: lp.s.slideT > 0 });
     w.render();
     inp.endFrame();
@@ -1232,6 +1271,8 @@ export class Game {
       }
     }
     w.hud.prompt(prompt);
+    // □ with nothing to interact with = reload (keyboard has R)
+    if (inp.padActive && inp.pressed.has('use') && !prompt && !this.focusPed && !this.focusShop) this.startReload();
     // doors: walk into an open doorway
     if (this.geoDoorCheck()) { /* sent */ }
   }
@@ -1282,6 +1323,9 @@ export class Game {
     this.world.hud.face.age = Math.min(1, this.runCount / 40);
   }
 }
+
+/** viewmodel extras on the HUD (reload / inspect / motion) — optional until present */
+function vm(h: unknown): { reload?(d: number): void; inspect?(): void; motion?: Record<string, number | boolean> } { return h as { reload?(d: number): void; inspect?(): void; motion?: Record<string, number | boolean> }; }
 
 export function pickLine(a: string[]): string { return a[Math.floor(Math.random() * a.length)] ?? ''; }
 
