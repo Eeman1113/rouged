@@ -2,9 +2,15 @@
 // and in the browser (solo, via LocalTransport).
 
 import type {
-  ClientMsg, Difficulty, DoorSnap, EnemyType, GameEvent, ProjectileKind, ReplicaProfile, RoomDesc, RunState, RunSummary, ServerMsg, Snapshot, WeaponId,
+  ClientMsg, Difficulty, Mutator, ShopItem, DoorSnap, EnemyType, GameEvent, ProjectileKind, ReplicaProfile, RoomDesc, RunState, RunSummary, ServerMsg, Snapshot, WeaponId,
 } from '../shared/protocol';
 import { generateRoom, solidsFor, Box, RoomGeo, navBlockedAt, isBossIndex } from '../shared/mapData';
+import { Leech } from './enemies/leech';
+import { Sentinel } from './enemies/sentinel';
+import { Bomber } from './enemies/bomber';
+import { Mortar } from './enemies/mortar';
+import { Bulwark } from './enemies/bulwark';
+import { Wraith } from './enemies/wraith';
 import { Rng, hashString, mixSeed, randomSeedString, normalizeSeed } from '../shared/rng';
 import { DIFFICULTY, DifficultyDef, ENEMIES } from '../shared/enemyDefs';
 import * as C from '../shared/constants';
@@ -18,7 +24,7 @@ import { Spider } from './enemies/spider';
 import { Replica } from './enemies/replica';
 import { Warden } from './boss/warden';
 import { TOTAL_ROOMS, composeEnemies, firstRoom, nextRoom, SpawnPlan } from './roomGraph';
-import { makeOffers, applyPick } from './powerups';
+import { makeOffers, applyPick, rollRarity, pickPowerup } from './powerups';
 import * as combat from './combat';
 
 export interface RunHost {
@@ -33,7 +39,8 @@ export interface Projectile {
   dmg: number; owner: number; life: number; homing?: string; gravity: number; explode: number; r: number;
 }
 export interface Mine { id: number; x: number; y: number; z: number; armT: number; owner: number; life: number }
-export interface Drop { id: number; kind: 'hp' | 'armor' | 'ammo'; x: number; y: number; z: number; amount: number; life: number }
+export interface Drop { id: number; kind: 'hp' | 'armor' | 'ammo' | 'scrap'; x: number; y: number; z: number; amount: number; life: number }
+export interface Strike { x: number; z: number; r: number; t: number; dmg: number; kind: 'mine' | 'rocket' | 'tesla' }
 export interface Hazard { x: number; z: number; r: number; dps: number; life: number; owner: string }
 
 interface FlowField { t: number; dist: Int16Array }
@@ -98,6 +105,14 @@ export class Run {
   runCount = 0;
   teslaT = 0;
   private profT = 0;
+  strikes: Strike[] = [];
+  mutator: Mutator | undefined;
+  depthHp = 1;
+  depthDmg = 1;
+  extracted = false;
+  trueEnding = false;
+  trialT = -1;
+  shieldHitT = new Map<number, number>();
 
   constructor(public host: RunHost, opts: RunOptions) {
     this.id = 'run' + (++RUN_COUNTER) + '_' + Math.floor(Math.random() * 1e6).toString(36);
@@ -175,6 +190,8 @@ export class Run {
       case 'glory': combat.handleGlory(this, p, msg.enemy); break;
       case 'ripper': p.ripperOn = msg.on && p.unlocked.includes('ripper'); break;
       case 'pick': this.onPick(p, msg.slot); break;
+      case 'buy': this.onBuy(p, msg.slot); break;
+      case 'shrine': this.onShrine(p); break;
       case 'door': this.onDoor(p, msg.slot); break;
       case 'begin': if (this.state === 'lobby' && id === this.hostId) this.start(); break;
       case 'ping': this.host.send(id, { t: 'pong', c: msg.c, s: this.time }); break;
@@ -236,6 +253,12 @@ export class Run {
     this.flow.clear();
     this.gauntletBackSpawned = false;
     this.frenzy = [...this.players.values()].some((p) => p.mods.frenzy);
+    this.strikes = [];
+    this.trialT = -1;
+    this.mutator = desc.mutator;
+    const past = Math.max(0, desc.index - (C.EXTRACT_FROM - 1));
+    this.depthHp = 1 + past * C.DEPTH_HP_SCALE;
+    this.depthDmg = 1 + past * C.DEPTH_DMG_SCALE;
 
     const spawns: { id: string; x: number; y: number; z: number; yaw: number }[] = [];
     let i = 0;
@@ -251,6 +274,8 @@ export class Run {
       }
       p.invuln = C.SPAWN_PROTECT;
       p.pedestals = null;
+      p.shop = null;
+      p.shrine = false;
       p.doorVote = -1;
       p.privDirty = true;
       spawns.push({ id, x: p.x, y: p.y, z: p.z, yaw: 0 });
@@ -263,6 +288,29 @@ export class Run {
       case 'combat': {
         this.state = 'combat';
         this.queueSpawns(composeEnemies(desc, n, this.runCount, roomRng), 1.0, 'far');
+        break;
+      }
+      case 'trial': {
+        // a timed, elite-heavy fight. win in time → legendary-tier rewards
+        this.state = 'combat';
+        this.queueSpawns(composeEnemies(desc, n, this.runCount, roomRng), 1.2, 'any');
+        this.trialT = 35 + Math.min(25, desc.index * 0.6);
+        this.roomTimer = this.trialT;
+        this.emit({ e: 'trial', state: 'start', time: this.trialT });
+        break;
+      }
+      case 'shop': {
+        this.state = 'reward';
+        this.cleared = true;
+        this.doorsOpenAt = this.time + 0.5;
+        this.openShop();
+        break;
+      }
+      case 'sanctuary': {
+        this.state = 'reward';
+        this.cleared = true;
+        this.doorsOpenAt = this.time + 0.5;
+        for (const p of this.players.values()) { p.shrine = true; p.privDirty = true; }
         break;
       }
       case 'arena': {
@@ -305,7 +353,8 @@ export class Run {
         const w = new Warden(this.nextId++, 0, -12, this, variant, Math.pow(C.BOSS_HP_SCALE, n - 1));
         this.enemies.set(w.id, w);
         this.boss = w;
-        this.emit({ e: 'bossIntro', name: w.name, title: ['WARDEN OF THE FOUNDRY', 'WARDEN OF THE ARCHIVE', 'WARDEN OF THE CORE'][variant] });
+        const TITLES = ['WARDEN OF THE FOUNDRY', 'WARDEN OF THE ARCHIVE', 'WARDEN OF THE CORE', 'WARDEN OF THE NURSERY', 'WARDEN OF THE CANOPY', 'WARDEN OF THE FRONT', 'IT WAS ALWAYS HERE'];
+        this.emit({ e: 'bossIntro', name: w.name, title: TITLES[variant] ?? 'WARDEN' });
         break;
       }
       default: break;
@@ -352,6 +401,12 @@ export class Run {
       case 'stalker': return new Stalker(id, type, x, z, elite, this);
       case 'spider': return new Spider(id, type, x, z, elite, this);
       case 'replica': return new Replica(id, x, z, elite, this, this.replicaProfile);
+      case 'leech': return new Leech(id, type, x, z, elite, this);
+      case 'sentinel': return new Sentinel(id, type, x, z, elite, this);
+      case 'bomber': return new Bomber(id, type, x, z, elite, this);
+      case 'mortar': return new Mortar(id, type, x, z, elite, this);
+      case 'bulwark': return new Bulwark(id, type, x, z, elite, this);
+      case 'wraith': return new Wraith(id, type, x, z, elite, this);
       default: return new Grunt(id, 'grunt', x, z, elite, this);
     }
   }
@@ -385,25 +440,37 @@ export class Run {
     this.projectiles = [];
     this.mines = [];
     this.roomTimer = -1;
-    if (isBoss && this.room.index >= TOTAL_ROOMS - 1) {
-      // final warden down: the run is won
-      this.victory = true;
-      this.endT = this.time + 4;
+    for (const p of this.players.values()) if (isBoss && p.mods.immortal) p.phoenixUsed = false;
+    if (isBoss && this.room.index === C.FINAL_ROOM - 1 && !this.trueEnding) {
+      // THE HANDLER is down. For a moment, nothing runs.
+      this.trueEnding = true;
+      this.emit({ e: 'trueEnding' });
+      this.doorsOpenAt = this.time + 22;
+      this.offerPedestals('epic', 3);
       return;
     }
-    this.offerPedestals(isBoss ? 'epic' : this.room.door === 'unknown' ? 'rare' : 'common', this.room.door === 'elite' ? 3 : 2);
+    if (isBoss && this.room.index + 1 >= C.EXTRACT_FROM) this.emit({ e: 'extractOffer' });
+    if (this.room.kind === 'trial') {
+      const won = this.trialT > 0;
+      this.emit({ e: 'trial', state: won ? 'win' : 'fail', time: this.trialT });
+      this.offerPedestals(won ? 'epic' : 'common', won ? 3 : 2, won);
+      this.trialT = -1;
+      this.doorsOpenAt = this.time + 1.6;
+      return;
+    }
+    this.offerPedestals(isBoss ? 'epic' : this.room.door === 'unknown' || this.mutator === 'bloodmoon' ? 'rare' : 'common', this.room.door === 'elite' ? 3 : 2);
     this.doorsOpenAt = this.time + 1.6;
   }
 
-  offerPedestals(minRarity: 'common' | 'rare' | 'epic', count: number) {
+  offerPedestals(minRarity: 'common' | 'rare' | 'epic', count: number, legendary = false) {
     const spots = this.geo.pedestals;
     for (const p of this.players.values()) {
       if (!p.alive) continue;
-      const offers = makeOffers(this.rng, p, this.room.index, count, minRarity);
+      const offers = makeOffers(this.rng, p, this.room.index, count, minRarity, legendary);
       offers.forEach((o, i) => { o.x = spots[i].x; o.z = spots[i].z; });
       p.pedestals = offers;
       p.privDirty = true;
-      this.host.send(p.id, { t: 'events', ev: [{ e: 'pedestals', id: p.id, pedestals: offers }] });
+      this.sendLater(p.id, { e: 'pedestals', id: p.id, pedestals: offers });
     }
   }
 
@@ -418,6 +485,67 @@ export class Run {
     for (const s of newSyn) this.emit({ e: 'synergy', id: p.id, synergy: s });
     this.frenzy = [...this.players.values()].some((pp) => pp.mods.frenzy);
     p.privDirty = true;
+  }
+
+  openShop() {
+    const spots = this.geo.pedestals;
+    const price = (r: string) => Math.round(({ common: 30, rare: 60, epic: 110, legendary: 200 } as Record<string, number>)[r] * (1 + this.room.index * 0.025));
+    for (const p of this.players.values()) {
+      const items: ShopItem[] = [];
+      const taken = new Set<string>();
+      for (let i = 0; i < 4; i++) {
+        const rarity = rollRarity(this.rng, p, Math.max(8, this.room.index), i === 3 ? 'rare' : 'common');
+        const id = pickPowerup(this.rng, p, this.room.index, rarity, taken);
+        taken.add(id.id);
+        items.push({ slot: i, kind: 'powerup', x: spots[i].x, z: spots[i].z, price: price(id.rarity), offer: { id: id.id, rarity: id.rarity }, sold: false });
+      }
+      items.push({ slot: 4, kind: 'heal', x: spots[4].x, z: spots[4].z, price: Math.round(25 + this.room.index), sold: false });
+      items.push({ slot: 5, kind: 'armor', x: spots[5].x, z: spots[5].z, price: Math.round(20 + this.room.index), sold: false });
+      p.shop = items;
+      p.privDirty = true;
+      this.sendLater(p.id, { e: 'shop', id: p.id, items });
+    }
+  }
+
+  onBuy(p: SimPlayer, slot: number) {
+    if (!p.shop || !p.alive) return;
+    const it = p.shop.find((x) => x.slot === slot);
+    if (!it || it.sold || p.scrap < it.price) return;
+    if (Math.hypot(p.x - it.x, p.z - it.z) > 3.5) return;
+    p.scrap -= it.price;
+    it.sold = true;
+    if (it.kind === 'powerup' && it.offer) {
+      const newSyn = applyPick(p, it.offer.id, it.offer.rarity);
+      for (const sy of newSyn) this.emit({ e: 'synergy', id: p.id, synergy: sy });
+    } else if (it.kind === 'heal') p.heal(60);
+    else if (it.kind === 'armor') p.addArmor(50);
+    this.emit({ e: 'buy', id: p.id, slot, item: it });
+    p.privDirty = true;
+  }
+
+  onShrine(p: SimPlayer) {
+    if (!p.shrine || !p.alive) return;
+    const sh = this.geo.decor.find((d) => d.kind === 'shrine');
+    if (!sh || Math.hypot(p.x - sh.x, p.z - sh.z) > 3.2) return;
+    p.shrine = false;
+    p.hp = p.mods.maxHp;
+    p.addArmor(25);
+    for (const w of ['pulse', 'breacher', 'lance'] as WeaponId[]) p.ammo[w] = 1;
+    this.emit({ e: 'shrine', id: p.id, x: sh.x, z: sh.z });
+    p.privDirty = true;
+  }
+
+  /** A telegraphed ground strike: shown now, lands after `delay`. */
+  strike(x: number, z: number, r: number, delay: number, dmg: number, kind: Strike['kind']) {
+    this.strikes.push({ x, z, r, t: delay, dmg, kind });
+    this.emit({ e: 'telegraph', x, z, r, t: delay });
+  }
+
+  shieldHit(e: Enemy) {
+    const last = this.shieldHitT.get(e.id) ?? -9;
+    if (this.time - last < 0.12) return;
+    this.shieldHitT.set(e.id, this.time);
+    this.emit({ e: 'shieldHit', enemy: e.id, x: e.x, y: e.cy, z: e.z });
   }
 
   onDoor(p: SimPlayer, slot: number) {
@@ -454,7 +582,14 @@ export class Run {
   doTransition() {
     const ds = this.geo.doors.find((d) => d.slot === this.transitionSlot) ?? this.geo.doors.find((d) => !d.entry);
     if (!ds) return;
-    const desc = nextRoom(this.seed, this.room, ds.slot, ds.kind, isBossIndex(this.room.index + 1) ? 'boss' : ds.nextKind);
+    if (ds.kind === 'extract') {
+      // walk out. (It leads back to the hub. It always does.)
+      this.extracted = true;
+      this.victory = true;
+      this.endRun();
+      return;
+    }
+    const desc = nextRoom(this.seed, this.room, ds.slot, ds.kind, isBossIndex(this.room.index + 1) ? 'boss' : ds.nextKind, ds.mutator);
     this.loadRoom(desc);
   }
 
@@ -476,6 +611,7 @@ export class Run {
       died: !this.victory, victory: this.victory, anomalies: p.anomalies, favoriteWeapon: p.favoriteWeapon(),
       powerups: p.powerups.map((x) => x.id), synergies: p.synergies.slice(),
       xp: Math.round(p.xp * this.diff.xp), profile: this.profileOf(p),
+      depth: this.room ? this.room.index + 1 : 0, extracted: this.extracted, trueEnding: this.trueEnding, scrap: p.scrap,
     }));
     this.emit({ e: 'runEnd', summary });
     this.flush();
@@ -515,6 +651,14 @@ export class Run {
   }
 
   emit(ev: GameEvent) { this.events.push(ev); }
+
+  /** Private events go out right after this tick's broadcast (so they never arrive before a roomLoad). */
+  private later = new Map<string, GameEvent[]>();
+  sendLater(id: string, ev: GameEvent) {
+    const l = this.later.get(id) ?? [];
+    l.push(ev);
+    this.later.set(id, l);
+  }
 
   alertSquad(src: Enemy, target: SimPlayer) {
     for (const e of this.enemies.values()) {
@@ -614,12 +758,19 @@ export class Run {
     this.updatePlayers(dt);
     for (const e of this.enemies.values()) if (e.alive) e.update(this, dt);
     this.separateEnemies();
+    this.clampEnemies();
     for (const [id, e] of this.enemies) if (!e.alive) this.enemies.delete(id);
     this.updateProjectiles(dt);
     this.updateMines(dt);
     this.updateHazards(dt);
     this.updateDrops(dt);
+    this.updateStrikes(dt);
     combat.updateTesla(this, dt);
+    if (this.trialT > 0 && !this.cleared) {
+      this.trialT -= dt;
+      this.roomTimer = this.trialT;
+      if (this.trialT <= 0) { this.trialT = 0; this.roomTimer = -1; this.emit({ e: 'trial', state: 'fail', time: 0 }); }
+    }
 
     // combo decay: 1x per COMBO_DECAY_TIME without a kill
     if (this.combo > 1) {
@@ -685,6 +836,25 @@ export class Run {
         p.trailT -= dt;
         if (p.trailT <= 0) { p.trailT = 0.05; this.hazards.push({ x: p.x, z: p.z, r: 1.3, dps: p.mods.dashTrailDps, life: 2.5, owner: p.id }); }
       }
+      // shock dash / stormcaller
+      if (p.dashing && !p.wasDashing) {
+        p.dashHit.clear();
+        if (p.mods.storm) {
+          for (const e of this.enemies.values()) if (e.marked && e.alive) {
+            this.emit({ e: 'arc', x1: p.x, y1: p.y + 1.5, z1: p.z, x2: e.x, y2: e.cy, z2: e.z });
+            this.damageEnemy(e, 30 * p.mods.damageMult, p.id, false, 0, 1, 0, 'pulse');
+          }
+        }
+      }
+      p.wasDashing = p.dashing;
+      if (p.dashing && p.mods.shockDash > 0) {
+        for (const e of this.enemies.values()) {
+          if (p.dashHit.has(e.id) || Math.hypot(e.x - p.x, e.z - p.z) > e.def.radius + 1.3) continue;
+          p.dashHit.add(e.id);
+          this.emit({ e: 'arc', x1: p.x, y1: p.y + 1, z1: p.z, x2: e.x, y2: e.cy, z2: e.z });
+          this.damageEnemy(e, p.mods.shockDash * p.mods.damageMult, p.id, false, p.vx, 0, p.vz, 'pulse');
+        }
+      }
       // slide blade
       if (p.sliding && p.mods.slideDamage) {
         for (const e of this.enemies.values()) {
@@ -715,16 +885,27 @@ export class Run {
     }
   }
 
+  /** Keep everything inside the room shell (separation / knockback can shove through thin walls). */
+  clampEnemies() {
+    const hw = this.geo.w / 2, hd = this.geo.d / 2;
+    for (const e of this.enemies.values()) {
+      if (e.pinned) continue;
+      const r = e.def.radius + 0.05;
+      if (e.x < -hw + r) e.x = -hw + r; else if (e.x > hw - r) e.x = hw - r;
+      if (e.z < -hd + r) e.z = -hd + r; else if (e.z > hd - r) e.z = hd - r;
+    }
+  }
+
   separateEnemies() {
     const arr = [...this.enemies.values()];
     for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
       const a = arr[i], b = arr[j];
-      if (a.def.flying !== b.def.flying) continue;
+      if (a.def.flying !== b.def.flying || a.pinned || b.pinned) continue;
       const dx = b.x - a.x, dz = b.z - a.z;
       const d = Math.hypot(dx, dz), min = a.def.radius + b.def.radius;
       if (d < min && d > 1e-4) {
         const push = (min - d) * 0.5;
-        const wa = a.type === 'warden' ? 0 : 1, wb = b.type === 'warden' ? 0 : 1;
+        const wa = a.type === 'warden' || a.type === 'sentinel' ? 0 : 1, wb = b.type === 'warden' || b.type === 'sentinel' ? 0 : 1;
         a.x -= (dx / d) * push * wa; a.z -= (dz / d) * push * wa;
         b.x += (dx / d) * push * wb; b.z += (dz / d) * push * wb;
       }
@@ -798,6 +979,21 @@ export class Run {
     }
   }
 
+  updateStrikes(dt: number) {
+    if (!this.strikes.length) return;
+    const keep: Strike[] = [];
+    for (const st of this.strikes) {
+      st.t -= dt;
+      if (st.t > 0) { keep.push(st); continue; }
+      this.emit({ e: 'explosion', x: st.x, y: 0.3, z: st.z, r: st.r, kind: st.kind });
+      for (const p of this.alivePlayers()) {
+        const d = Math.hypot(p.x - st.x, p.z - st.z);
+        if (d < st.r + 0.3 && p.y < 2.2) this.damagePlayer(p, st.dmg, st.x, 0.3, st.z, false, null, { x: (p.x - st.x) / (d || 1) * 7, y: 6, z: (p.z - st.z) / (d || 1) * 7 });
+      }
+    }
+    this.strikes = keep;
+  }
+
   updateMines(dt: number) {
     const keep: Mine[] = [];
     for (const m of this.mines) {
@@ -833,7 +1029,16 @@ export class Run {
       if (d.life <= 0) { this.emit({ e: 'dropGone', did: d.id }); continue; }
       let taken = false;
       for (const p of this.alivePlayers()) {
-        if (Math.hypot(p.x - d.x, p.z - d.z) > 1.4 || Math.abs(p.y - d.y) > 2) continue;
+        const reach = d.kind === 'scrap' ? (p.mods.magnet ? 9 : 2.6) : p.mods.magnet ? 3 : 1.4;
+        if (Math.hypot(p.x - d.x, p.z - d.z) > reach || Math.abs(p.y - d.y) > 2.5) continue;
+        if (d.kind === 'scrap') {
+          const n = Math.round(d.amount * p.mods.scrapMult);
+          p.scrap += n;
+          this.emit({ e: 'scrap', id: p.id, amount: n });
+          this.emit({ e: 'dropGone', did: d.id });
+          p.privDirty = true;
+          taken = true; break;
+        }
         if (d.kind === 'hp') { if (p.hp >= p.mods.maxHp || p.mods.martyr) continue; p.heal(d.amount); }
         else if (d.kind === 'armor') { if (p.mods.noArmor || p.armor >= C.PLAYER_MAX_ARMOR) continue; p.addArmor(d.amount); }
         else { for (const w of ['pulse', 'breacher', 'lance'] as WeaponId[]) p.ammo[w] = Math.min(1, p.ammo[w] + d.amount); p.privDirty = true; }
@@ -853,6 +1058,10 @@ export class Run {
       this.host.broadcast({ t: 'events', ev: this.events });
       this.events = [];
     }
+    if (this.later.size) {
+      for (const [id, ev] of this.later) this.host.send(id, { t: 'events', ev });
+      this.later.clear();
+    }
     if (this.tickN % this.snapshotEvery === 0 && this.state !== 'lobby') this.host.broadcast({ t: 'snap', s: this.snapshot() });
   }
 
@@ -861,6 +1070,7 @@ export class Run {
       slot: d.slot, kind: d.kind, nextKind: isBossIndex(this.room.index + 1) ? 'boss' : d.nextKind, open: this.openDoors.has(d.slot),
       x: d.x, z: d.z, nx: d.nx, nz: d.nz,
       votes: [...this.players.values()].filter((p) => p.doorVote === d.slot).length,
+      mutator: d.mutator,
     }));
     const b = this.boss;
     return {

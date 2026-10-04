@@ -10,9 +10,10 @@ import { Hud } from './hud/hud';
 import { Input } from './input';
 import { LocalPlayer } from './prediction';
 import { HandlerVoice } from './audio/handler';
+import { VoiceCast, Speaker } from './audio/voices';
 import { audio } from './audio/engine';
 import { sfx } from './audio/sfx';
-import { BIOME_LIGHT, RoomGeo, solidsFor } from '../shared/mapData';
+import { lightFor, RoomGeo, solidsFor } from '../shared/mapData';
 import type { Meta } from './meta';
 import { handlerLine, HandlerContext } from './story/handlerLines';
 import { BIOME_NAMES } from '../shared/mapData';
@@ -27,6 +28,7 @@ export class World {
   input: Input;
   player = new LocalPlayer();
   voice: HandlerVoice;
+  cast = new VoiceCast();
   geo: RoomGeo | null = null;
   timeScale = 1;
   slowT = 0;
@@ -47,6 +49,10 @@ export class World {
   fovBase = 95;
   lookLockT = 0;
   lookTarget: THREE.Vector3 | null = null;
+  wardenName = 'WARDEN';
+  depth = 1;
+  /** silence mutator: the Handler is cut off */
+  muteHandler = false;
 
   constructor() {
     const gl = document.getElementById('gl') as HTMLCanvasElement;
@@ -64,6 +70,9 @@ export class World {
       (text, glitch) => this.hud.handlerSay(text, glitch),
       (dur) => { sfx.staticBurst(dur); this.glitch(0.8); },
     );
+    this.cast.handler = this.voice;
+    const LABEL: Record<Speaker, string> = { announcer: 'ANNOUNCER', broker: 'THE BROKER', mara: 'MARA', warden: 'WARDEN', enemy: '???', system: 'SYSTEM', directorate: 'DIRECTORATE' };
+    this.cast.onSubtitle = (sp, text) => { if (sp !== 'announcer' && sp !== 'enemy') this.hud.handlerSay(text, 0, sp === 'warden' ? this.wardenName : LABEL[sp]); };
   }
 
   applySettings(m: Meta) {
@@ -76,6 +85,7 @@ export class World {
     this.input.gyroSens = s.gyroSens;
     audio.setVolume(s.master, s.music, s.sfx);
     this.voice.setEnabled(s.voice);
+    this.cast.enabled = s.voice;
     this.fovBase = s.fov;
     this.shakeMult = s.shake;
     if (s.quality !== this.r.quality) {
@@ -97,10 +107,11 @@ export class World {
     this.fx.clear();
     this.gore.boxes = solidsFor(geo, null);
     this.player.boxes = solidsFor(geo, new Set());
-    const L = BIOME_LIGHT[geo.desc.kind === 'hub' ? 3 : geo.desc.biome];
-    const fogColor = geo.desc.kind === 'anomaly' ? 0x041208 : L.fog;
+    const L = lightFor(geo.desc.kind, geo.desc.biome);
+    const fogColor = geo.desc.kind === 'anomaly' ? 0x041208 : geo.desc.mutator === 'bloodmoon' ? 0x1a0202 : geo.desc.mutator === 'darkness' ? 0x000000 : L.fog;
     this.r.setFog(fogColor, geo.fog);
-    this.r.setAmbient(L.ambient, 0x080404, geo.desc.kind === 'hub' ? 1.1 : 0.85);
+    this.r.setAmbient(L.ambient, 0x080404, geo.desc.kind === 'hub' ? 1.1 : geo.desc.mutator === 'darkness' ? 0.25 : 0.85);
+    this.ents.ambient *= geo.desc.mutator === 'darkness' ? 0.35 : 1;
   }
 
   setOpenDoors(open: Set<number>) {
@@ -126,6 +137,7 @@ export class World {
       if (this.slowT <= 0) { this.timeScale = 1; this.slowScale = 1; }
     }
     audio.setTimeScale(this.timeScale);
+    this.cast.update();
     this.flashV *= Math.max(0, 1 - dt * 9);
     this.vignV *= Math.max(0, 1 - dt * 3);
     this.glitchV *= Math.max(0, 1 - dt * 4);
@@ -168,7 +180,8 @@ export class World {
     const now = performance.now() / 1000;
     const last = this.lastLine.get(ctx) ?? -99;
     if (now - last < cooldown) return;
-    const line = handlerLine(ctx, runCount, { name: this.meta?.name ?? 'CANDIDATE', run: runCount + 1, biome: biome !== undefined ? BIOME_NAMES[biome] : undefined });
+    if (this.muteHandler && priority < 4) return;
+    const line = handlerLine(ctx, runCount, { name: this.meta?.name ?? 'CANDIDATE', run: runCount + 1, biome: biome !== undefined ? BIOME_NAMES[biome] : undefined, depth: this.depth });
     if (!line) return;
     this.lastLine.set(ctx, now);
     this.voice.say(line, { runCount, priority });

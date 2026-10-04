@@ -11,7 +11,7 @@ import { music } from './audio/music';
 import type { Difficulty, RunSummary } from '../shared/protocol';
 import { normalizeSeed } from '../shared/rng';
 import { newUnlocks, UNLOCKS } from '../server/progression';
-import { DEATH_TITLES, FRAGMENTS, REVEAL_SCRIPT, SYNERGY_LORE, ENEMY_CODEX, Fragment } from './story/fragments';
+import { DEATH_TITLES, FRAGMENTS, REVEAL_SCRIPT, EXTRACT_SCRIPT, SYNERGY_LORE, ENEMY_CODEX, Fragment } from './story/fragments';
 import { SYNERGIES } from '../shared/powerupDefs';
 import { handlerLine } from './story/handlerLines';
 import { esc } from './hud/killfeed';
@@ -171,7 +171,8 @@ class App {
           <div class="kv">
             <div class="k">RUNS LOGGED</div><div class="v">${this.meta.runCount}</div>
             <div class="k">TERMINATIONS</div><div class="v">${this.meta.deaths}</div>
-            <div class="k">COMPLETIONS</div><div class="v">${this.meta.victories}</div>
+            <div class="k">EXTRACTIONS</div><div class="v">${this.meta.extractions}</div>
+            <div class="k">DEEPEST</div><div class="v gold">${this.meta.deepest ? 'DEPTH ' + this.meta.deepest : '—'}</div>
             <div class="k">BEST SCORE</div><div class="v gold">${this.meta.bestScore.toLocaleString()}</div>
             <div class="k">BEST MULTIPLIER</div><div class="v gold">x${this.meta.bestCombo}</div>
             <div class="k">TOTAL KILLS</div><div class="v">${this.meta.totalKills}</div>
@@ -414,6 +415,7 @@ class App {
         this.world.input.requestLock();
       },
       onTerminal: (lines, frag) => this.showTerminal(lines, frag, false),
+      onCinematic: (script, done) => this.playCinematic(script, done),
     }, opts);
     if (!coop) this.world.input.requestLock();
   }
@@ -499,6 +501,7 @@ class App {
       this.world.voice.cancel();
       this.disposeGame();
       if (revealDue) this.showReveal();
+      else if (s.extracted) this.showExtract(() => this.showDeath(s, res, extras.fragment));
       else this.showDeath(s, res, extras.fragment);
     }, s.victory ? 1500 : 900);
   }
@@ -506,7 +509,7 @@ class App {
   showDeath(s: RunSummary, res: ReturnType<typeof applyRun>, frag: Fragment | null) {
     this.mode = 'death';
     this.world.hud.show(false);
-    const title = s.victory ? 'SIMULATION COMPLETE' : DEATH_TITLES[(this.meta.runCount * 7) % DEATH_TITLES.length];
+    const title = s.trueEnding && s.extracted ? 'IT LET YOU GO' : s.extracted ? 'EXTRACTED' : DEATH_TITLES[(this.meta.runCount * 7) % DEATH_TITLES.length];
     const lv = metaLevel(this.meta);
     const unlocks = newUnlocks(res.prevLevel, res.newLevel);
     const prevFrac = res.newLevel > res.prevLevel ? 0 : Math.max(0, (lv.into - res.xpGained) / lv.need);
@@ -520,7 +523,9 @@ class App {
         <div class="k">KILLS</div><div class="v">${s.kills}</div>
         <div class="k">HEADSHOTS</div><div class="v">${s.headshots}</div>
         <div class="k">GLORY KILLS</div><div class="v">${s.glories}</div>
-        <div class="k">ROOMS CLEARED</div><div class="v">${s.rooms}/15</div>
+        <div class="k">DEPTH REACHED</div><div class="v ${s.depth > 15 ? 'gold' : ''}">${s.depth}${s.extracted ? ' · EXTRACTED' : ''}</div>
+        <div class="k">ROOMS CLEARED</div><div class="v">${s.rooms}</div>
+        <div class="k">SCRAP</div><div class="v">${s.scrap}</div>
         <div class="k">WARDENS</div><div class="v">${s.bosses}</div>
         <div class="k">PEAK MULTIPLIER</div><div class="v gold">x${s.peakCombo}</div>
         <div class="k">BEST STREAK</div><div class="v">${s.bestStreak}</div>
@@ -539,6 +544,35 @@ class App {
     (d.querySelector('#b-again') as HTMLElement).onclick = again;
     this.focusFirst();
     (d.querySelector('#b-title') as HTMLElement).onclick = () => { window.removeEventListener('keydown', key); this.showTitle(); };
+  }
+
+  showExtract(then: () => void) {
+    this.mode = 'reveal';
+    this.world.hud.show(false);
+    const d = this.setScreen(`<div class="reveal-terminal" id="rv" style="color:#e9e2d0;text-shadow:0 0 12px #fff"></div>`, 'black');
+    (d as HTMLElement).style.background = 'radial-gradient(ellipse at center, #fff 0%, #d8d8d0 20%, #000 75%)';
+    const el = d.querySelector('#rv') as HTMLElement;
+    let t = 0;
+    for (const line of EXTRACT_SCRIPT) {
+      t += line.delay * 1000;
+      setTimeout(() => {
+        const p = document.createElement('div');
+        p.textContent = (line.speaker === 'terminal' ? '> ' : line.speaker === 'system' ? '[SYSTEM] ' : '') + line.text;
+        p.style.margin = '6px 0';
+        el.appendChild(p);
+        if (line.speaker === 'handler') this.world.voice.say(line.text, { runCount: this.meta.runCount, priority: 9 });
+        else this.world.cast.say('system', line.text, 2);
+      }, t);
+    }
+    setTimeout(() => {
+      const b = document.createElement('div');
+      b.className = 'menu'; b.style.margin = '24px auto';
+      b.innerHTML = '<button class="btn primary">OPEN YOUR EYES</button>';
+      el.appendChild(b);
+      const btn = b.querySelector('button') as HTMLElement;
+      btn.onclick = then;
+      if (this.world.input.padActive) btn.focus();
+    }, t + 2000);
   }
 
   showReveal() {
@@ -571,6 +605,28 @@ class App {
       el.appendChild(b);
       (b.querySelector('button') as HTMLElement).onclick = () => { music.resume(); this.coop = false; this.startRun(false); };
     }, t + 2500);
+  }
+
+  /** In-run cinematic: lines type out over the frozen room; Handler lines are spoken in its voice. */
+  playCinematic(script: { speaker: string; text: string; delay: number }[], done: () => void) {
+    const el = document.createElement('div');
+    el.className = 'cine';
+    this.screens.appendChild(el);
+    let t = 0;
+    for (const line of script) {
+      t += line.delay * 1000;
+      setTimeout(() => {
+        const p = document.createElement('div');
+        p.className = line.speaker === 'handler' ? 'h' : line.speaker === 'system' ? 's' : '';
+        p.textContent = (line.speaker === 'terminal' ? '> ' : line.speaker === 'system' ? '[SYSTEM] ' : '') + line.text;
+        p.style.margin = '5px 0';
+        el.appendChild(p);
+        while (el.children.length > 9) el.firstElementChild?.remove();
+        if (line.speaker === 'handler') this.world.voice.say(line.text, { runCount: this.meta.runCount >= 40 ? 41 : 30, priority: 9 });
+        else this.world.cast.say(line.speaker === 'system' ? 'directorate' : 'system', line.text, 2);
+      }, t);
+    }
+    setTimeout(() => { el.style.transition = 'opacity 2s'; el.style.opacity = '0'; setTimeout(() => { el.remove(); done(); }, 2000); }, t + 3500);
   }
 
   showCodex(back: () => void) {

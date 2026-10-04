@@ -248,3 +248,15 @@ body.touch #h-powerups { bottom: 250px; }
 .ctl-grid .kv .v { font-family: var(--vt); font-size: 20px; letter-spacing: 1px; }
 .mm-sub { color: #b08a7a; }
 .mm-item i { color: #8a7f75; }
+
+.hud-tl .scrap { font-size: 11px; color: #2affd0; margin-top: 2px; transform-origin: left center; }
+.hud-tl .scrap.bump { animation: bump .25s; }
+.mutator { font-size: 9px; color: #ff6a3a; margin-top: 6px; letter-spacing: 2px; animation: pulse 1s infinite alternate; }
+#h-handler[data-who="THE BROKER"] { color: #2affd0; text-shadow: 0 0 8px rgba(42,255,208,.5), 2px 2px 0 #000; }
+#h-handler[data-who="MARA"] { color: #ffd9a8; text-shadow: 0 0 8px rgba(255,200,140,.5), 2px 2px 0 #000; }
+#h-handler[data-who^="THE "]:not([data-who="THE BROKER"]) { color: #ff6a5a; text-shadow: 0 0 10px rgba(255,40,20,.6), 2px 2px 0 #000; }
+#h-handler[data-who="ANNOUNCER"], #h-handler[data-who="SYSTEM"] { color: #e9e2d0; }
+.latch-fx { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 60%, transparent 40%, rgba(120,20,40,.55) 100%); animation: pulse .3s infinite alternate; }
+.cine { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(820px, 90vw); font-family: var(--vt); font-size: clamp(20px, 2.6vw, 30px); color: var(--term); text-shadow: 0 0 8px #0f6; text-align: left; white-space: pre-wrap; pointer-events: none; background: rgba(0,0,0,.82); padding: 22px 26px; border: 1px solid #1a4a1a; }
+.cine .h { color: #cfe; }
+.cine .s { color: #e9e2d0; opacity: .8; }

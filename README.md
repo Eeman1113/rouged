@@ -22,6 +22,16 @@ Co-op: **CO-OP DEPLOY** in the menu, enter your server address (`ws://host:8787`
 
 WASD move · mouse aim · LMB fire (hold to charge LANCE / run RIPPER) · SPACE jump (hold = auto bunny-hop) · SHIFT dash · CTRL/C slide · F or RMB glory kill · E use/pick · 1–4 / wheel / Q weapons · ESC pause. Touch controls appear automatically on mobile.
 
+## The descent
+
+Seven biomes — **FOUNDRY, ARCHIVE, THE CORE, THE NURSERY, THE CANOPY** (jungle), **THE FRONT, THE MIRROR** — five rooms each, a Warden at the end of every one. From room 15 on, every Warden offers a choice: **EXTRACT** (end the run and bank it) or **GO DEEPER**. The Handler waits at room 35. Past it is the Endless: the biomes cycle forever and everything keeps getting harder.
+
+- 13 enemy types: drone, grunt, brute, stalker, spider, replica, leech, sentinel, bomber, mortar, bulwark, wraith, plus 7 Wardens
+- Rooms: combat, arena, gauntlet, anomaly, **Broker's shop** (spend scrap), **Sanctuary** (heal + Mara's logs), **Trial** (beat the clock for a legendary)
+- Mutators on doors: Lights Out, Overclock, Low Gravity, Blood Moon, Dead Air, Swarm, each with a score bonus
+- 37 powerups, 9 hidden synergies, 92 story fragments, two endings
+- Every character speaks in a synthetic voice: the Handler, the announcer, the Broker, Mara, the Wardens, the whispering enemies, the terminals
+
 ## DualSense
 
 Plug in or pair a DualSense and press any button. Every button, analog triggers and rumble work out of the box (Gamepad API), with aim assist and full menu navigation.

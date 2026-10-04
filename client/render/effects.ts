@@ -5,7 +5,7 @@ import { getExplosionFrames, getMuzzleSprite, getSparkSprite } from './sprites';
 import { tex } from './tex';
 import { glowTex } from './entities';
 
-interface Fx { obj: THREE.Object3D; life: number; max: number; kind: 'line' | 'sprite' | 'anim' | 'beam' | 'mesh'; frames?: THREE.Texture[]; vx?: number; vy?: number; vz?: number; grow?: number }
+interface Fx { obj: THREE.Object3D; life: number; max: number; kind: 'line' | 'sprite' | 'anim' | 'beam' | 'mesh'; frames?: THREE.Texture[]; vx?: number; vy?: number; vz?: number; grow?: number; fill?: boolean }
 
 export class Effects {
   group = new THREE.Group();
@@ -127,6 +127,19 @@ export class Effects {
     this.add({ obj: m, life: 0.45, max: 0.45, kind: 'mesh', grow: 2.2 });
   }
 
+  /** Ground warning: a ring that fills as the strike approaches. */
+  telegraph(x: number, z: number, r: number, t: number) {
+    const ringGeo = new THREE.RingGeometry(r * 0.9, r, 28); ringGeo.rotateX(-Math.PI / 2);
+    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.6, 0.2), transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    ring.position.set(x, 0.06, z);
+    this.add({ obj: ring, life: t, max: t, kind: 'mesh' });
+    const discGeo = new THREE.CircleGeometry(r, 28); discGeo.rotateX(-Math.PI / 2);
+    const disc = new THREE.Mesh(discGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(2.5, 0.2, 0.1), transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }));
+    disc.position.set(x, 0.05, z);
+    disc.scale.setScalar(0.05);
+    this.add({ obj: disc, life: t, max: t, kind: 'mesh', grow: -1 * 0 + 0.0001, fill: true });
+  }
+
   update(dt: number) {
     const keep: Fx[] = [];
     for (const f of this.list) {
@@ -146,6 +159,15 @@ export class Effects {
         const s = f.obj.scale.x * (1 + dt * (f.grow ?? 0));
         f.obj.scale.set(s, s, 1);
         mat.opacity = Math.min(1, k * 2);
+      } else if (f.fill) {
+        // telegraph disc: grows to full as the strike lands
+        const sc = Math.max(0.05, 1 - k);
+        f.obj.scale.setScalar(sc);
+        mat.opacity = 0.25 + (1 - k) * 0.35 + (Math.sin(performance.now() / 50) > 0 ? 0.08 : 0);
+        keep.push(f);
+        continue;
+      } else if (f.kind === 'mesh' && f.max > 0.9 && !f.grow) {
+        mat.opacity = 0.5 + Math.sin(performance.now() / 60) * 0.4;
       } else {
         mat.opacity = k;
       }

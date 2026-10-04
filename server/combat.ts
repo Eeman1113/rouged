@@ -8,6 +8,8 @@ import type { Run } from './run';
 import type { SimPlayer } from './player';
 import type { Enemy } from './enemies/base';
 
+const MUT_SCORE: Record<string, number> = { darkness: 1.5, overclock: 1.4, lowgrav: 1.25, bloodmoon: 1.6, silence: 1.35, swarm: 1.45 };
+
 export function handleShot(run: Run, p: SimPlayer, m: ShotMsg) {
   if (!p.alive || !p.unlocked.includes(m.weapon)) return;
   const def = WEAPONS[m.weapon];
@@ -28,8 +30,9 @@ export function handleShot(run: Run, p: SimPlayer, m: ShotMsg) {
   const dl = Math.hypot(m.dx, m.dy, m.dz) || 1;
   const dx = m.dx / dl, dy = m.dy / dl, dz = m.dz / dl;
 
-  let maxHits = def.kind === 'charge' ? 99 : def.kind === 'shotgun' ? def.pellets * (1 + p.mods.pierce) : 1 + p.mods.pierce;
-  let pelletBudget = def.kind === 'shotgun' ? def.pellets * (1 + p.mods.pierce) : 999;
+  const pellets = def.pellets + (def.kind === 'shotgun' ? p.mods.extraPellets : 0);
+  let maxHits = def.kind === 'charge' ? 99 : def.kind === 'shotgun' ? pellets * (1 + p.mods.pierce) : (1 + p.mods.pierce) * (m.weapon === 'pulse' && p.mods.hydra ? 3 : 1);
+  let pelletBudget = def.kind === 'shotgun' ? pellets * (1 + p.mods.pierce) : 999;
   let first: Enemy | null = null;
   for (const h of m.hits) {
     if (maxHits-- <= 0) break;
@@ -47,6 +50,7 @@ export function handleShot(run: Run, p: SimPlayer, m: ShotMsg) {
     if (def.kind === 'shotgun') { n = Math.max(1, Math.min(h.n, pelletBudget)); pelletBudget -= n; }
     let dmg = def.kind === 'charge' ? def.damage + ((def.maxDamage ?? def.damage) - def.damage) * charge : def.damage * n;
     if (m.weapon === 'pulse') dmg *= 1 + p.mods.pulseAmp;
+    if (m.weapon === 'lance') dmg *= p.mods.lanceDmg;
     dmg *= p.mods.damageMult;
     const head = h.head && e.def.headR > 0;
     if (head) dmg *= p.mods.headshotMult;
@@ -86,7 +90,7 @@ export function ripperTick(run: Run, p: SimPlayer, dt: number) {
     if (!e.alive || e.spawnT > 0) continue;
     const dx = e.x - p.x, dz = e.z - p.z;
     const d = Math.hypot(dx, dz);
-    if (d > C.RIPPER_RANGE + e.def.radius) continue;
+    if (d > C.RIPPER_RANGE * Math.sqrt(p.mods.ripperMult) + e.def.radius) continue;
     if (e.y > p.y + 3 || e.y + e.def.height < p.y) continue;
     if (d > 0.5 && (dx * fx + dz * fz) / d < 0.55) continue;
     if (e.staggered) {
@@ -94,12 +98,13 @@ export function ripperTick(run: Run, p: SimPlayer, dt: number) {
       gloryKill(run, p, e);
       continue;
     }
-    damageEnemy(run, e, C.RIPPER_DPS * acc * p.mods.damageMult * (e.type === 'warden' ? 1.5 : 1), p.id, false, fx, 0.2, fz, 'ripper');
+    damageEnemy(run, e, C.RIPPER_DPS * acc * p.mods.damageMult * p.mods.ripperMult * (e.type === 'warden' ? 1.5 : 1), p.id, false, fx, 0.2, fz, 'ripper');
   }
 }
 
 export function damageEnemy(run: Run, e: Enemy, dmg: number, by: string, head: boolean, dx: number, dy: number, dz: number, weapon: WeaponId, silent = false) {
   if (!e.alive || e.spawnT > 0 || dmg <= 0) return;
+  if (!silent) dmg = e.modifyDamage(run, dmg, dx, dz, head);
   e.hp -= dmg;
   e.lastHitBy = by;
   const p = run.players.get(by) ?? null;
@@ -138,6 +143,7 @@ export function killEnemy(run: Run, e: Enemy, by: string, head: boolean, glory: 
   e.alive = false;
   e.hp = 0;
   const p = run.players.get(by) ?? null;
+  if (p && weapon === 'ripper' && p.mods.butcher && !glory) { glory = true; run.emit({ e: 'glory', enemy: e.id, by: p.id, type: e.type, x: e.x, y: e.cy, z: e.z }); }
   run.combo = Math.min(C.COMBO_MAX, run.combo + 1);
   run.comboTimer = C.COMBO_DECAY_TIME;
   let score = 0;
@@ -149,11 +155,14 @@ export function killEnemy(run: Run, e: Enemy, by: string, head: boolean, glory: 
     if (glory) p.glories++;
     p.weaponKills[weapon]++;
     p.peakCombo = Math.max(p.peakCombo, run.combo);
-    score = Math.round(e.def.score * run.combo * (head ? 1.5 : 1) * (glory ? 2 : 1) * (e.elite ? 1.5 : 1));
+    score = Math.round(e.def.score * (run.mutator ? MUT_SCORE[run.mutator] : 1) * run.combo * (head ? 1.5 : 1) * (glory ? 2 : 1) * (e.elite ? 1.5 : 1));
     p.score += score;
     p.xp += C.XP_PER_KILL * Math.min(run.combo, 6) * (e.elite ? 1.5 : 1) + (e.type === 'warden' ? 0 : 0);
     for (const w of ['pulse', 'breacher', 'lance'] as WeaponId[]) p.ammo[w] = Math.min(1, p.ammo[w] + C.AMMO_ON_KILL * (weapon === 'ripper' ? 4 : 1));
     p.privDirty = true;
+    if (p.mods.vampire > 0 && !p.mods.martyr) p.heal(p.mods.vampire);
+    if (p.mods.bloodbath) { p.heal(4); run.explodeAt(e.x, e.cy, e.z, 3.2, 25 * p.mods.damageMult, p.id, 'kill'); }
+    if (glory && p.mods.reaper) { p.hp = p.mods.maxHp; p.reaperRefill = true; }
     if (glory) {
       if (!p.mods.martyr) p.heal(C.GLORY_HEAL * p.mods.gloryHealMult);
       p.addArmor(C.GLORY_ARMOR * (e.type === 'brute' ? 10 : 3));
@@ -164,6 +173,11 @@ export function killEnemy(run: Run, e: Enemy, by: string, head: boolean, glory: 
     updateStreak(run, p);
     onKillEffects(run, p, e);
   }
+  e.onDeath(run, by);
+  // scrap: the currency of deleted minds
+  const scrapN = Math.max(1, Math.round(e.def.score / 40 * (e.elite ? 1.6 : 1)));
+  if (e.type !== 'warden') run.spawnDrop('scrap', e.x + (run.rng.next() - 0.5), e.z + (run.rng.next() - 0.5), scrapN);
+  else for (let i = 0; i < 8; i++) run.spawnDrop('scrap', e.x + run.rng.range(-3, 3), e.z + run.rng.range(-3, 3), 12);
   // drops
   if (e.def.armorDrop && !(p && p.mods.noArmor)) run.spawnDrop('armor', e.x, e.z, e.def.armorDrop);
   if (p && p.mods.scavenger) {
@@ -261,6 +275,15 @@ export function damagePlayer(run: Run, p: SimPlayer, dmg: number, sx: number, sy
   dmg -= absorbed;
   p.hp -= dmg;
   run.emit({ e: 'playerHit', id: p.id, dmg: Math.round(dmg + absorbed), x: sx, y: sy, z: sz, armorBroke: hadArmor && p.armor <= 0, kx: knock?.x, ky: knock?.y, kz: knock?.z });
+  if (p.hp <= 0 && p.mods.phoenix && !p.phoenixUsed) {
+    // PHOENIX CORE: not yet.
+    p.phoenixUsed = true;
+    p.hp = Math.round(p.mods.maxHp * 0.5);
+    p.invuln = 1.5;
+    run.explodeAt(p.x, p.y + 1, p.z, 7, 120 * p.mods.damageMult, p.id, 'boss');
+    run.emit({ e: 'phoenix', id: p.id });
+    return;
+  }
   if (p.hp <= 0) {
     p.hp = 0;
     p.alive = false;

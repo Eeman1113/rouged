@@ -3,7 +3,7 @@ import { Pix, Rng, makeRng, makeNoise, mix, mul, lit, ramp, bayer, part, F_EMIT,
 
 const T = 64;
 
-function noiseFill(p: Pix, base: number, seed: number, amt: number, period = 8, alt?: number): void {
+export function noiseFill(p: Pix, base: number, seed: number, amt: number, period = 8, alt?: number): void {
   const n = makeNoise(seed, period);
   const n2 = makeNoise(seed + 1, period * 2);
   const k = period / p.w, k2 = (period * 2) / p.w;
@@ -16,20 +16,20 @@ function noiseFill(p: Pix, base: number, seed: number, amt: number, period = 8, 
     }
 }
 
-function tint(p: Pix, x: number, y: number, f: number): void { p.tint(x, y, (c) => lit(c, f)); }
+export function tint(p: Pix, x: number, y: number, f: number): void { p.tint(x, y, (c) => lit(c, f)); }
 
 /** Panel: lit top/left edge, dark bottom/right seam. */
-function panel(p: Pix, x0: number, y0: number, w: number, h: number, d = 0.55, hi = 0.3): void {
+export function panel(p: Pix, x0: number, y0: number, w: number, h: number, d = 0.55, hi = 0.3): void {
   for (let i = 0; i < w; i++) { tint(p, x0 + i, y0, hi); tint(p, x0 + i, y0 + h - 1, -d); p.tint(x0 + i, y0 + h - 1, (c) => mul(c, 0.55)); }
   for (let j = 0; j < h; j++) { tint(p, x0, y0 + j, hi * 0.6); tint(p, x0 + w - 1, y0 + j, -d * 0.8); }
 }
 
-function rivet(p: Pix, x: number, y: number, base: number): void {
+export function rivet(p: Pix, x: number, y: number, base: number): void {
   p.set(x, y, lit(base, 0.55)); p.set(x + 1, y, lit(base, 0.2)); p.set(x, y + 1, lit(base, 0.1)); p.set(x + 1, y + 1, lit(base, -0.55));
   tint(p, x + 2, y + 1, -0.35); tint(p, x + 1, y + 2, -0.35);
 }
 
-function streaks(p: Pix, r: Rng, n: number, col: number, len: number, alpha = 0.45): void {
+export function streaks(p: Pix, r: Rng, n: number, col: number, len: number, alpha = 0.45): void {
   for (let i = 0; i < n; i++) {
     let x = Math.floor(r() * p.w);
     const y0 = Math.floor(r() * p.h), L = len * (0.4 + r() * 0.8);
@@ -41,11 +41,11 @@ function streaks(p: Pix, r: Rng, n: number, col: number, len: number, alpha = 0.
   }
 }
 
-function speckle(p: Pix, r: Rng, n: number, f: number): void {
+export function speckle(p: Pix, r: Rng, n: number, f: number): void {
   for (let i = 0; i < n; i++) tint(p, Math.floor(r() * p.w), Math.floor(r() * p.h), r() < 0.6 ? -f : f);
 }
 
-function hazard(p: Pix, y0: number, h: number, x0 = 0, w = T): void {
+export function hazard(p: Pix, y0: number, h: number, x0 = 0, w = T): void {
   for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
     const s = ((x + y) >> 2) & 1;
     p.set(x, y, s ? 0xc8a020 : 0x1a1814);
@@ -53,14 +53,14 @@ function hazard(p: Pix, y0: number, h: number, x0 = 0, w = T): void {
   for (let x = x0; x < x0 + w; x++) { tint(p, x, y0, 0.3); tint(p, x, y0 + h - 1, -0.5); }
 }
 
-function hcyl(p: Pix, y0: number, h: number, base: number): void {
+export function hcyl(p: Pix, y0: number, h: number, base: number): void {
   for (let y = 0; y < h; y++) {
     const ny = (y + 0.5) / h * 2 - 1;
     for (let x = 0; x < T; x++) p.set(x, y0 + y, ramp(base, -ny * 0.9 + (Math.abs(ny + 0.4) < 0.15 ? 0.6 : 0), x, y0 + y, 5));
   }
 }
 
-function glowStrip(p: Pix, y: number, hot: number, mid: number, dim: number): void {
+export function glowStrip(p: Pix, y: number, hot: number, mid: number, dim: number): void {
   for (let x = 0; x < T; x++) {
     p.set(x, y - 2, mix(dim, 0x000000, 0.4)); p.set(x, y - 1, dim, F_EMIT); p.set(x, y, mid, F_EMIT); p.set(x, y + 1, hot, F_EMIT);
     p.set(x, y + 2, mid, F_EMIT); p.set(x, y + 3, dim, F_EMIT); p.set(x, y + 4, mix(dim, 0x000000, 0.4));
@@ -143,7 +143,7 @@ function archiveWall(v: number): Pix {
   return p;
 }
 
-function vein(p: Pix, r: Rng, x: number, y: number, n: number, col: number, flag = 0): void {
+export function vein(p: Pix, r: Rng, x: number, y: number, n: number, col: number, flag = 0): void {
   let ang = r() * Math.PI * 2;
   for (let i = 0; i < n; i++) {
     ang += (r() - 0.5) * 0.9;
@@ -340,6 +340,10 @@ const DOOR_COL: Record<string, number[]> = {
   elite: [0xffe0d0, 0xff2a2a, 0x6a0a10],
   unknown: [0xfff8d0, 0xffc83b, 0x6a4a0a],
   corrupted: [0xf0ffd0, 0x8aff3a, 0x2a5a0a],
+  extract: [0xffffff, 0xe8f0ff, 0x6a7a9a],
+  shop: [0xfff4c0, 0xffb030, 0x6a3a08],
+  sanctuary: [0xfffff0, 0xfff0c0, 0x8a7a4a],
+  trial: [0xffe8ff, 0xc050ff, 0x4a0a6a],
 };
 
 export function buildDoor(kind: string, open: boolean): HTMLCanvasElement {

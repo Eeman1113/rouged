@@ -85,6 +85,12 @@ export const GRUNT_HP = 80;
 export const BRUTE_HP = 300;
 export const STALKER_HP = 60;
 export const SPIDER_HP = 50;
+export const LEECH_HP = 40;
+export const SENTINEL_HP = 170;
+export const BOMBER_HP = 45;
+export const MORTAR_HP = 120;
+export const BULWARK_HP = 260;
+export const WRAITH_HP = 90;
 export const REPLICA_HP = 100;
 export const WARDEN_HP = 2000;
 export const ENEMY_ACCURACY = 0.65;
@@ -98,7 +104,11 @@ export const ENEMY_SIGHT = 30; // m
 // ═══════════════════════════════════════════════════════
 export const ROOMS_PER_BIOME = 5;
 export const BOSS_EVERY = 5;
-export const BIOMES = 3;
+export const BIOMES = 7; // FOUNDRY, ARCHIVE, THE CORE, THE NURSERY, THE CANOPY, THE FRONT, THE MIRROR
+export const EXTRACT_FROM = 15; // first EXTRACT / GO DEEPER choice after this many rooms
+export const FINAL_ROOM = 35; // THE HANDLER — then the Endless
+export const DEPTH_HP_SCALE = 0.06; // per room past EXTRACT_FROM
+export const DEPTH_DMG_SCALE = 0.03;
 
 // ═══════════════════════════════════════════════════════
 // CO-OP SCALING

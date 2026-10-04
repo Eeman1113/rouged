@@ -1,11 +1,12 @@
 // Wire protocol + shared type vocabulary. Used by client, server sim, and the ws server.
 
-export type EnemyType = 'drone' | 'grunt' | 'brute' | 'stalker' | 'spider' | 'replica' | 'warden';
+export type EnemyType = 'drone' | 'grunt' | 'brute' | 'stalker' | 'spider' | 'replica' | 'warden' | 'leech' | 'sentinel' | 'bomber' | 'mortar' | 'bulwark' | 'wraith';
 export type WeaponId = 'pulse' | 'breacher' | 'lance' | 'ripper';
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
-export type DoorKind = 'standard' | 'elite' | 'unknown' | 'corrupted';
-export type RoomKind = 'combat' | 'arena' | 'gauntlet' | 'anomaly' | 'boss' | 'hub';
-export type BiomeId = 0 | 1 | 2;
+export type DoorKind = 'standard' | 'elite' | 'unknown' | 'corrupted' | 'extract' | 'shop' | 'sanctuary' | 'trial';
+export type RoomKind = 'combat' | 'arena' | 'gauntlet' | 'anomaly' | 'boss' | 'hub' | 'shop' | 'sanctuary' | 'trial';
+export type Mutator = 'darkness' | 'overclock' | 'lowgrav' | 'bloodmoon' | 'silence' | 'swarm';
+export type BiomeId = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 export type Difficulty = 'easy' | 'normal' | 'hard' | 'nightmare';
 export type RunState = 'lobby' | 'combat' | 'reward' | 'boss' | 'transition' | 'ended';
 
@@ -22,6 +23,7 @@ export interface RoomDesc {
   seed: number;
   /** Set on the final "reveal" room only. */
   reveal?: boolean;
+  mutator?: Mutator;
 }
 
 export interface PlayerSnap {
@@ -36,6 +38,7 @@ export interface PlayerSnap {
   score: number;
   kills: number;
   color: number;
+  scrap: number;
   firing: boolean;
   ghost: boolean;
 }
@@ -59,7 +62,7 @@ export interface EnemySnap {
   phase?: number;
 }
 
-export type ProjectileKind = 'bolt' | 'plasma' | 'orb' | 'rocket' | 'spit' | 'replica';
+export type ProjectileKind = 'bolt' | 'plasma' | 'orb' | 'rocket' | 'spit' | 'replica' | 'shell' | 'hex';
 
 export interface ProjectileSnap {
   id: number;
@@ -81,6 +84,15 @@ export interface Pedestal {
   offer: PedestalOffer;
 }
 
+export interface ShopItem {
+  slot: number;
+  kind: 'powerup' | 'heal' | 'armor' | 'reroll';
+  x: number; z: number;
+  price: number;
+  offer?: PedestalOffer;
+  sold: boolean;
+}
+
 export interface DoorSnap {
   slot: number;
   kind: DoorKind;
@@ -89,6 +101,7 @@ export interface DoorSnap {
   x: number; z: number; // door center
   nx: number; nz: number; // inward-facing normal (points into the room)
   votes: number;
+  mutator?: Mutator;
 }
 
 export interface Snapshot {
@@ -117,6 +130,9 @@ export interface PlayerPrivate {
   ammo: Record<WeaponId, number>; // 0..1 fraction of magazine
   unlockedWeapons: WeaponId[];
   pedestals: Pedestal[] | null;
+  shop: ShopItem[] | null;
+  shrine: boolean; // sanctuary heal available
+  scrap: number;
   stats: PlayerStats;
 }
 
@@ -167,13 +183,24 @@ export type GameEvent =
   | { e: 'bossPhase'; phase: number }
   | { e: 'mineArm'; id: number }
   | { e: 'pickup'; id: string; kind: 'hp' | 'armor' | 'ammo'; amount: number }
-  | { e: 'drop'; did: number; kind: 'hp' | 'armor' | 'ammo'; x: number; y: number; z: number }
+  | { e: 'drop'; did: number; kind: 'hp' | 'armor' | 'ammo' | 'scrap'; x: number; y: number; z: number }
   | { e: 'dropGone'; did: number }
   | { e: 'timerFail' }
   | { e: 'runEnd'; summary: RunSummary[] }
   | { e: 'chat'; text: string }
   | { e: 'replica' }
-  | { e: 'revealStart' };
+  | { e: 'revealStart' }
+  | { e: 'telegraph'; x: number; z: number; r: number; t: number }
+  | { e: 'shop'; id: string; items: ShopItem[] }
+  | { e: 'buy'; id: string; slot: number; item: ShopItem }
+  | { e: 'shrine'; id: string; x: number; z: number }
+  | { e: 'trial'; state: 'start' | 'win' | 'fail'; time: number }
+  | { e: 'scrap'; id: string; amount: number }
+  | { e: 'latch'; enemy: number; id: string; on: boolean }
+  | { e: 'shieldHit'; enemy: number; x: number; y: number; z: number }
+  | { e: 'phoenix'; id: string }
+  | { e: 'trueEnding' }
+  | { e: 'extractOffer' };
 
 export interface RunSummary {
   id: string;
@@ -195,6 +222,10 @@ export interface RunSummary {
   synergies: string[];
   xp: number;
   profile: ReplicaProfile;
+  depth: number;
+  extracted: boolean;
+  trueEnding: boolean;
+  scrap: number;
 }
 
 // ───────────────────────────── messages ─────────────────────────────
@@ -231,6 +262,8 @@ export type ClientMsg =
   | { t: 'door'; slot: number }
   | { t: 'begin' }
   | { t: 'ripper'; on: boolean }
+  | { t: 'buy'; slot: number }
+  | { t: 'shrine' }
   | { t: 'ping'; c: number };
 
 export type ServerMsg =

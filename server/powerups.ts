@@ -4,7 +4,7 @@ import * as C from '../shared/constants';
 import type { Rng } from '../shared/rng';
 import type { SimPlayer } from './player';
 
-const UNIQUE = new Set(['doublejump', 'wallrun', 'curse_glass', 'curse_starve', 'curse_frenzy', 'curse_naked', 'tesla', 'martyr', 'executioner', 'ghost', 'overclock', 'chain', 'cryo']);
+const UNIQUE = new Set(['reaper', 'phoenix', 'hydra', 'magnet', 'doublejump', 'wallrun', 'curse_glass', 'curse_starve', 'curse_frenzy', 'curse_naked', 'tesla', 'martyr', 'executioner', 'ghost', 'overclock', 'chain', 'cryo']);
 
 /** The rarity roll — the slot machine. */
 export function rollRarity(rng: Rng, player: SimPlayer, roomIndex: number, minRarity: Rarity = 'common'): Rarity {
@@ -45,13 +45,26 @@ function synergyWeight(def: PowerupDef, player: SimPlayer): number {
   return w;
 }
 
-export function makeOffers(rng: Rng, player: SimPlayer, roomIndex: number, count: number, minRarity: Rarity = 'common'): Pedestal[] {
+/** One powerup id for a given rarity roll (used by the Broker's shop). */
+export function pickPowerup(rng: Rng, player: SimPlayer, roomIndex: number, rarity: Rarity, exclude: Set<string>): { id: string; rarity: Rarity } {
+  if (rarity === 'legendary') {
+    const pool = POWERUPS.filter((p) => p.category === 'legendary' && !exclude.has(p.id) && !player.powerups.some((o) => o.id === p.id));
+    if (pool.length) return { id: rng.pick(pool).id, rarity: 'legendary' };
+    rarity = 'epic';
+  }
+  let pool = POWERUPS.filter((p) => p.category !== 'legendary' && p.category !== 'curse' && !exclude.has(p.id) && !(UNIQUE.has(p.id) && player.powerups.some((o) => o.id === p.id)));
+  if (!pool.length) pool = POWERUPS.filter((p) => p.category === 'passive');
+  void roomIndex;
+  return { id: rng.weighted(pool, pool.map((p) => synergyWeight(p, player))).id, rarity };
+}
+
+export function makeOffers(rng: Rng, player: SimPlayer, roomIndex: number, count: number, minRarity: Rarity = 'common', forceLegendary = false): Pedestal[] {
   const offers: Pedestal[] = [];
   const chosen = new Set<string>();
   let curseUsed = false;
   let rarePlus = false;
   for (let slot = 0; slot < count; slot++) {
-    const rarity = rollRarity(rng, player, roomIndex, minRarity);
+    const rarity = forceLegendary && slot === 0 ? 'legendary' : rollRarity(rng, player, roomIndex, minRarity);
     let id: string | null = null;
     if (rarity === 'legendary') {
       const pool = POWERUPS.filter((p) => p.category === 'legendary' && !chosen.has(p.id) && !player.powerups.some((o) => o.id === p.id));

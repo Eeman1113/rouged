@@ -42,12 +42,12 @@ export function exposedCore(p: Pix, r: Rng, cx: number, cy: number, rad: number,
   sparks(p, r, cx, cy, rad + 4, 5 + (big ? 4 : 0));
 }
 
-function eyeSlit(p: Pix, x: number, y: number, w: number, on: number): void {
+export function eyeSlit(p: Pix, x: number, y: number, w: number, on: number): void {
   for (let i = 0; i < w; i++) p.set(x + i, y, on, F_EMIT);
   if (w >= 3 && on === EYE) p.set(x + (w >> 1), y, EYE_HOT, F_EMIT);
 }
 
-function muzzleFlash(p: Pix, r: Rng, x: number, y: number, rad: number, long = false): void {
+export function muzzleFlash(p: Pix, r: Rng, x: number, y: number, rad: number, long = false): void {
   glowBlob(p, x, y, rad, 0xffffff, SPARK_Y, 0xff8a20, 0.3, r);
   const L = Math.round(rad * (long ? 2.2 : 1.6));
   for (let i = 1; i <= L; i++) {
@@ -62,7 +62,7 @@ function muzzleFlash(p: Pix, r: Rng, x: number, y: number, rad: number, long = f
 }
 
 /** Puddle of fluid under a corpse. */
-function pool(p: Pix, r: Rng, cx: number, cy: number, rx: number, ry: number, organic: boolean): void {
+export function pool(p: Pix, r: Rng, cx: number, cy: number, rx: number, ry: number, organic: boolean): void {
   const c0 = organic ? BLOOD : OIL_LIGHT, c1 = organic ? BLOOD_DARK : OIL;
   for (let y = Math.floor(cy - ry); y <= cy + ry; y++)
     for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {

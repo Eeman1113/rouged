@@ -13,7 +13,7 @@
  */
 import { audio } from './engine';
 
-type BiomeId = 0 | 1 | 2 | 'hub';
+type BiomeId = number | 'hub';
 type LayerName = 'base' | 'combat' | 'aggression' | 'rampage' | 'boss';
 
 interface Biome {
@@ -103,6 +103,34 @@ const BIOMES: Record<string, Biome> = {
     leadType: 'sawtooth',
     swingHat: false,
     hub: false,
+  },
+  '3': {
+    // THE NURSERY: sterile, lullaby-wrong, A minor, 108 — music box arps over a slow pulse
+    root: 45, scale: MINOR, bpm: 108, prog: [0, 3, 5, 4],
+    kick: 'x.......x.......', snare: '........x.......', riff: 'o.......o...m...',
+    padType: 'sine', padCut: 2200, bassType: 'triangle', bass16: false, arp: true, heartbeat: true, clang: false,
+    drive: 14, leadType: 'triangle', swingHat: false, hub: false,
+  },
+  '4': {
+    // THE CANOPY: humid, tribal toms + marimba-ish square arps, G dorian-ish, 126
+    root: 43, scale: [0, 2, 3, 5, 7, 9, 10], bpm: 126, prog: [0, 3, 4, 3],
+    kick: 'x..x..x...x.x...', snare: '...x....x..x..x.', riff: 'm.o.m..om.o.m..o',
+    padType: 'triangle', padCut: 1300, bassType: 'square', bass16: false, arp: true, heartbeat: false, clang: false,
+    drive: 26, leadType: 'square', swingHat: true, hub: false,
+  },
+  '5': {
+    // THE FRONT: war march, D phrygian, 148, relentless double kick
+    root: 38, scale: PHRYGIAN, bpm: 148, prog: [0, 1, 6, 0],
+    kick: 'x.x.x.x.x.x.x.x.', snare: '....x.......x.x.', riff: 'mmo.mmo.mmmmo.o.',
+    padType: 'sawtooth', padCut: 650, bassType: 'sawtooth', bass16: true, arp: false, heartbeat: false, clang: true,
+    drive: 75, leadType: 'sawtooth', swingHat: false, hub: false,
+  },
+  '6': {
+    // THE MIRROR: inside the Handler — B locrian-ish, 96, sparse and enormous
+    root: 35, scale: [0, 1, 3, 5, 6, 8, 10], bpm: 96, prog: [0, 1, 4, 0],
+    kick: 'x...........x...', snare: '........x.......', riff: 'o.......o.o.....',
+    padType: 'sawtooth', padCut: 500, bassType: 'sine', bass16: false, arp: true, heartbeat: true, clang: false,
+    drive: 30, leadType: 'sine', swingHat: false, hub: false,
   },
   hub: {
     root: 38,
@@ -439,7 +467,7 @@ class MusicSystem {
 
   private applyBiome(b: BiomeId): void {
     this.biomeId = b;
-    this.biome = BIOMES[String(b)];
+    this.biome = BIOMES[String(b)] ?? BIOMES['0'];
     const t = this.ctx.currentTime;
     this.padFilter.frequency.setTargetAtTime(this.biome.padCut, t, 0.5);
     this.riffShaper.curve = driveCurve(this.biome.drive);
@@ -825,7 +853,7 @@ export const music = {
   stop(): void {
     sys()?.stop();
   },
-  setBiome(b: 0 | 1 | 2 | 'hub'): void {
+  setBiome(b: number | 'hub'): void {
     sys()?.setBiome(b);
   },
   setLayers(l: { combat: boolean; aggression: boolean; rampage: boolean; boss: boolean }): void {

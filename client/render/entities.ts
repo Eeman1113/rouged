@@ -1,11 +1,11 @@
 // Enemy billboards (DOOM-style sprites), other players, projectiles, mines, drops, pedestals.
 
 import * as THREE from 'three';
-import type { EnemySnap, MineSnap, Pedestal, PlayerSnap, ProjectileKind, ProjectileSnap, EnemyType } from '../../shared/protocol';
+import type { EnemySnap, MineSnap, Pedestal, PlayerSnap, ProjectileKind, ProjectileSnap, EnemyType, ShopItem } from '../../shared/protocol';
 import { ENEMIES } from '../../shared/enemyDefs';
 import { POWERUP_BY_ID, RARITY_COLOR } from '../../shared/powerupDefs';
 import type { Light } from '../../shared/mapData';
-import { getEnemySprites, getProjectileSprite, getMineSprite, getPickupSprite, getPedestalIcon, EnemySpriteSet } from './sprites';
+import { getEnemySprites, getProjectileSprite, getMineSprite, getPickupSprite, getPedestalIcon, getScrapSprite, EnemySpriteSet } from './sprites';
 import { tex, textCanvas } from './tex';
 
 const glowTexCanvas = (() => {
@@ -34,6 +34,8 @@ const shadowTex = (() => {
 const EYE_COLOR: Record<EnemyType, THREE.Color> = {
   drone: new THREE.Color(6, 0.4, 0.2), grunt: new THREE.Color(6, 0.3, 0.2), brute: new THREE.Color(6, 2.2, 0.3), stalker: new THREE.Color(6, 0.2, 0.2),
   spider: new THREE.Color(6, 2.4, 0.4), replica: new THREE.Color(0.6, 3.5, 4), warden: new THREE.Color(7, 1.2, 0.3),
+  leech: new THREE.Color(6, 0.6, 0.6), sentinel: new THREE.Color(2, 3.5, 6), bomber: new THREE.Color(6, 2, 0.2), mortar: new THREE.Color(6, 1.5, 0.3),
+  bulwark: new THREE.Color(6, 2.6, 0.4), wraith: new THREE.Color(1.5, 5, 4),
 };
 
 export interface EnemyView {
@@ -75,6 +77,7 @@ export class EntityViews {
   }
 
   clearRoom() {
+    this.clearShop();
     for (const v of this.enemies.values()) this.group.remove(v.group);
     for (const v of this.corpses) this.group.remove(v.group);
     for (const p of this.projectiles.values()) { this.group.remove(p.sprite); this.group.remove(p.glow); }
@@ -255,6 +258,10 @@ export class EntityViews {
     for (const m of this.mines.values()) {
       (m.glow.material as THREE.SpriteMaterial).opacity = m.armed ? (Math.sin(this.time * 14) > 0 ? 1 : 0.15) : 0.3;
     }
+    for (const s of this.shop) {
+      const icon = s.group.children[1];
+      if (icon) icon.position.y = 1.45 + Math.sin(this.time * 2 + s.slot) * 0.08;
+    }
     for (const d of this.drops.values()) {
       d.t += dt;
       d.sprite.position.set(d.x, d.y + 0.25 + Math.sin(d.t * 3) * 0.12, d.z);
@@ -352,10 +359,11 @@ export class EntityViews {
     for (const [id, m] of this.mines) if (!seen.has(id)) { this.group.remove(m.mesh); this.group.remove(m.glow); this.mines.delete(id); }
   }
 
-  addDrop(id: number, kind: 'hp' | 'armor' | 'ammo', x: number, y: number, z: number) {
+  addDrop(id: number, kind: 'hp' | 'armor' | 'ammo' | 'scrap', x: number, y: number, z: number) {
     if (this.drops.has(id)) return;
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(getPickupSprite(kind)), color: new THREE.Color(1.6, 1.6, 1.6) }));
-    sprite.scale.set(0.6, 0.6, 1);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(kind === 'scrap' ? getScrapSprite() : getPickupSprite(kind)), color: kind === 'scrap' ? new THREE.Color(2.6, 2.6, 2.6) : new THREE.Color(1.6, 1.6, 1.6) }));
+    const sz = kind === 'scrap' ? 0.35 : 0.6;
+    sprite.scale.set(sz, sz, 1);
     this.group.add(sprite);
     this.drops.set(id, { sprite, x, y, z, t: Math.random() * 6 });
   }
@@ -395,6 +403,42 @@ export class EntityViews {
     }
   }
 
+  shop: { slot: number; group: THREE.Group; item: ShopItem }[] = [];
+
+  showShop(items: ShopItem[]) {
+    this.clearShop();
+    for (const it of items) {
+      const group = new THREE.Group();
+      group.position.set(it.x, 0, it.z);
+      const rarity = it.offer?.rarity ?? 'common';
+      const color = new THREE.Color(it.kind === 'powerup' ? RARITY_COLOR[rarity] : it.kind === 'heal' ? '#ff4a4a' : '#5ab8ff');
+      const column = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 1.0, 8), new THREE.MeshLambertMaterial({ color: 0x2a2f2e, emissive: color.clone().multiplyScalar(0.12) }));
+      column.position.y = 0.5;
+      const icon = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: tex(it.kind === 'powerup' ? getPedestalIcon(POWERUP_BY_ID[it.offer!.id]?.category ?? 'passive', rarity) : getPickupSprite(it.kind === 'heal' ? 'hp' : 'armor')),
+        color: new THREE.Color(1.8, 1.8, 1.8), transparent: true,
+      }));
+      icon.scale.set(0.7, 0.7, 1); icon.position.y = 1.45;
+      const lc = textCanvas(`${it.price} ◆`, '#2affd0', 22, "'VT323', monospace", '#000');
+      const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(lc), transparent: true, depthWrite: false }));
+      label.scale.set(lc.width * 0.022, lc.height * 0.022, 1); label.position.y = 2.05;
+      group.add(column, icon, label);
+      group.visible = !it.sold;
+      this.group.add(group);
+      this.shop.push({ slot: it.slot, group, item: it });
+    }
+  }
+
+  markSold(slot: number) {
+    const s = this.shop.find((x) => x.slot === slot);
+    if (s) { s.group.visible = false; s.item.sold = true; }
+  }
+
+  clearShop() {
+    for (const s of this.shop) this.group.remove(s.group);
+    this.shop = [];
+  }
+
   shatterPedestals(keepSlot: number): { x: number; z: number; color: number }[] {
     const out: { x: number; z: number; color: number }[] = [];
     for (const p of this.pedestals) {
@@ -414,5 +458,8 @@ export function projColor(k: ProjectileKind): THREE.Color {
     case 'rocket': return new THREE.Color(4, 2.4, 0.5);
     case 'spit': return new THREE.Color(1, 4, 0.6);
     case 'replica': return new THREE.Color(0.6, 3, 4);
+    case 'shell': return new THREE.Color(4, 1.8, 0.4);
+    case 'hex': return new THREE.Color(3, 0.6, 4.5);
+    default: return new THREE.Color(3, 3, 3);
   }
 }

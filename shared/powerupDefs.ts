@@ -25,6 +25,9 @@ export const POWERUPS: PowerupDef[] = [
   { id: 'ricochet', name: 'RICOCHET', category: 'weapon', desc: (s) => `Hits ricochet to a nearby enemy for ${pct(0.5 * s)} damage` },
   { id: 'deadeye', name: 'DEADEYE', category: 'weapon', desc: (s) => `+${pct(0.2 * s)} headshot damage` },
   { id: 'pulse_amp', name: 'PULSE AMP', category: 'weapon', desc: (s) => `+${pct(0.25 * s)} PULSE damage. Rounds carry charge.` },
+  { id: 'splitter', name: 'SPLITTER', category: 'weapon', desc: (s) => `BREACHER fires +${s >= 2 ? 4 : s >= 1 ? 3 : 2} pellets` },
+  { id: 'overcharge', name: 'OVERCHARGE', category: 'weapon', desc: (s) => `LANCE charges ${Math.round(40 * s)}% faster, +${Math.round(30 * s)}% damage` },
+  { id: 'chainsaw', name: 'HUNGRY TEETH', category: 'weapon', desc: (s) => `RIPPER +${Math.round(50 * s)}% damage and reach` },
   // ── movement
   { id: 'airdash', name: 'AIR DASH', category: 'movement', desc: (s) => `+${s >= 2 ? 2 : 1} dash charge` },
   { id: 'dashtrail', name: 'DASH TRAIL', category: 'movement', desc: (s) => `Dashing leaves fire (${Math.round(25 * s)}/s)` },
@@ -32,17 +35,21 @@ export const POWERUPS: PowerupDef[] = [
   { id: 'wallrun', name: 'WALL RUN', category: 'movement', desc: (s) => `Run along walls for ${(0.8 + 0.6 * s).toFixed(1)}s` },
   { id: 'slideblade', name: 'SLIDE BLADE', category: 'movement', desc: (s) => `Sliding into enemies deals ${Math.round(60 * s)} damage` },
   { id: 'fleet', name: 'FLEET', category: 'movement', desc: (s) => `+${pct(0.1 * s)} move speed, +${pct(0.1 * s)} jump` },
+  { id: 'shockdash', name: 'SHOCK DASH', category: 'movement', desc: (s) => `Dashing through enemies deals ${Math.round(40 * s)} damage` },
   // ── passive
   { id: 'vitality', name: 'VITALITY', category: 'passive', desc: (s) => `+${Math.round(20 * s)} max HP` },
   { id: 'lifesteal', name: 'LIFESTEAL', category: 'passive', desc: (s) => `Heal ${pct(0.04 * s)} of damage dealt` },
   { id: 'streakshield', name: 'STREAK SHIELD', category: 'passive', desc: (s) => `Kill streaks grant ${Math.round(10 * s)} armor` },
   { id: 'scavenge', name: 'SCAVENGE', category: 'passive', desc: (s) => `+${pct(0.5 * s)} ammo regeneration` },
   { id: 'thorns', name: 'THORNS', category: 'passive', desc: (s) => `Reflect ${pct(0.25 * s)} of melee damage` },
+  { id: 'magnet', name: 'SCAVENGER\'S EYE', category: 'passive', desc: (s) => `+${Math.round(50 * s)}% scrap, pickups fly to you` },
+  { id: 'bloodrush', name: 'BLOOD RUSH', category: 'passive', desc: (s) => `+${(2 * s).toFixed(1)}% move speed per combo level` },
   // ── on-kill
   { id: 'detonate', name: 'DETONATE', category: 'onkill', desc: (s) => `Killed enemies explode for ${Math.round(30 * s)} area damage` },
   { id: 'cryo', name: 'CRYO', category: 'onkill', desc: (s) => `Kills freeze nearby enemies for ${(1 + s).toFixed(1)}s` },
   { id: 'immolate', name: 'IMMOLATE', category: 'onkill', desc: (s) => `Kills ignite nearby enemies (${Math.round(12 * s)}/s)` },
   { id: 'chain', name: 'CHAIN', category: 'onkill', desc: (s) => `Kills mark enemies within ${Math.round(8 + 4 * s)}m. Marked take +15% and are visible through walls.` },
+  { id: 'vampire', name: 'VAMPIRE', category: 'onkill', desc: (s) => `Kills heal ${Math.round(3 * s + 1)} HP` },
   // ── curses (high risk / high reward)
   { id: 'curse_glass', name: 'CURSE: GLASS', category: 'curse', desc: () => '+100% damage, -50% max HP' },
   { id: 'curse_starve', name: 'CURSE: STARVE', category: 'curse', desc: () => 'No health drops, +50% glory kill HP' },
@@ -54,6 +61,9 @@ export const POWERUPS: PowerupDef[] = [
   { id: 'executioner', name: 'EXECUTIONER', category: 'legendary', desc: () => 'Every 5th kill is an instant glory kill from any range' },
   { id: 'ghost', name: 'GHOST', category: 'legendary', desc: () => 'Become invisible for 1s after every kill' },
   { id: 'overclock', name: 'OVERCLOCK', category: 'legendary', desc: () => 'Fire rate doubles for 3s after each kill' },
+  { id: 'reaper', name: 'REAPER', category: 'legendary', desc: () => 'Glory kills fully heal you and refill every dash' },
+  { id: 'phoenix', name: 'PHOENIX CORE', category: 'legendary', desc: () => 'Once per run, cheat death: rise at 50% HP in a blast of fire' },
+  { id: 'hydra', name: 'HYDRA', category: 'legendary', desc: () => 'PULSE fires three rounds at once' },
 ];
 
 export const POWERUP_BY_ID: Record<string, PowerupDef> = Object.fromEntries(POWERUPS.map((p) => [p.id, p]));
@@ -66,6 +76,10 @@ export const SYNERGIES: SynergyDef[] = [
   { id: 'glass', name: 'GLASS CANNON', requires: [['curse_glass'], ['lifesteal']], desc: 'Massive damage, heal from kills only' },
   { id: 'blink', name: 'BLINK', requires: [['airdash'], ['dashtrail'], ['ghost']], desc: 'Teleport-dash, no cooldown' },
   { id: 'scavenger', name: 'SCAVENGER', requires: [['scavenge'], ['detonate'], ['lifesteal']], desc: 'Every kill drops ammo + HP' },
+  { id: 'bloodbath', name: 'BLOODBATH', requires: [['vampire'], ['bloodrush'], ['curse_glass', 'curse_starve', 'curse_frenzy', 'curse_naked']], desc: 'Kills erupt in blood that heals you and burns them' },
+  { id: 'storm', name: 'STORMCALLER', requires: [['shockdash'], ['chain'], ['immolate', 'overload']], desc: 'Dashes call lightning on every marked enemy' },
+  { id: 'immortal', name: 'IMMORTAL', requires: [['phoenix'], ['vitality'], ['lifesteal', 'vampire']], desc: 'The Phoenix Core recharges after every Warden' },
+  { id: 'butcher', name: 'BUTCHER', requires: [['chainsaw'], ['reaper', 'executioner'], ['thorns', 'slideblade']], desc: 'Ripper kills are glory kills' },
 ];
 
 export function activeSynergies(ids: string[]): string[] {
@@ -101,6 +115,23 @@ export interface Mods extends PlayerStats {
   scavenger: boolean;
   wallRunTime: number;
   extraJumps: number;
+  extraPellets: number;
+  lanceCharge: number;
+  lanceDmg: number;
+  ripperMult: number;
+  shockDash: number;
+  scrapMult: number;
+  magnet: boolean;
+  bloodrush: number;
+  vampire: number;
+  reaper: boolean;
+  phoenix: boolean;
+  hydra: boolean;
+  bloodbath: boolean;
+  storm: boolean;
+  immortal: boolean;
+  butcher: boolean;
+  gravityMult: number;
 }
 
 export function baseMods(): Mods {
@@ -113,6 +144,8 @@ export function baseMods(): Mods {
     tesla: false, martyr: false, executioner: false, ghost: false, overclock: false,
     noArmor: false, noHealthDrops: false, gloryHealMult: 1, frenzy: false, lootBonus: 0, glassCannon: false, scavenger: false,
     wallRunTime: 0, extraJumps: 0,
+    extraPellets: 0, lanceCharge: 1, lanceDmg: 1, ripperMult: 1, shockDash: 0, scrapMult: 1, magnet: false, bloodrush: 0, vampire: 0,
+    reaper: false, phoenix: false, hydra: false, bloodbath: false, storm: false, immortal: false, butcher: false, gravityMult: 1,
   };
 }
 
@@ -154,6 +187,16 @@ export function computeMods(powerups: { id: string; rarity: Rarity }[], level = 
       case 'executioner': m.executioner = true; break;
       case 'ghost': m.ghost = true; break;
       case 'overclock': m.overclock = true; break;
+      case 'splitter': m.extraPellets += s >= 2 ? 4 : s >= 1 ? 3 : 2; break;
+      case 'overcharge': m.lanceCharge *= 1 + 0.4 * s; m.lanceDmg *= 1 + 0.3 * s; break;
+      case 'chainsaw': m.ripperMult *= 1 + 0.5 * s; break;
+      case 'shockdash': m.shockDash += 40 * s; break;
+      case 'magnet': m.scrapMult *= 1 + 0.5 * s; m.magnet = true; break;
+      case 'bloodrush': m.bloodrush += 0.02 * s; break;
+      case 'vampire': m.vampire += 3 * s + 1; break;
+      case 'reaper': m.reaper = true; break;
+      case 'phoenix': m.phoenix = true; break;
+      case 'hydra': m.hydra = true; break;
     }
   }
   // synergies
@@ -163,6 +206,10 @@ export function computeMods(powerups: { id: string; rarity: Rarity }[], level = 
   if (syn.includes('glass')) { m.glassCannon = true; m.damageMult *= 1.5; }
   if (syn.includes('blink')) { m.blink = true; m.dashCooldown = 0.25; }
   if (syn.includes('scavenger')) m.scavenger = true;
+  if (syn.includes('bloodbath')) m.bloodbath = true;
+  if (syn.includes('storm')) m.storm = true;
+  if (syn.includes('immortal')) m.immortal = true;
+  if (syn.includes('butcher')) m.butcher = true;
   m.maxHp = Math.round(Math.min(C.PLAYER_MAX_HP, Math.max(25, m.maxHp)));
   m.maxDash = Math.min(5, m.maxDash);
   return m;

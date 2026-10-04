@@ -37,6 +37,7 @@ export interface PhysParams {
   dashCooldown: number;
   extraJumps: number;
   wallRunTime: number;
+  gravityMult?: number;
 }
 
 export interface PEvents {
@@ -193,7 +194,7 @@ export function stepPlayer(s: PState, inp: PInput, p: PhysParams, boxes: Box[], 
   // jump (auto bunny-hop: holding jump re-jumps on landing, no friction frame)
   const jumpPressed = inp.jump && !s.jumpHeldPrev;
   if (inp.jump && s.onGround) {
-    s.vy = JUMP_V * Math.sqrt(p.jumpMult);
+    s.vy = JUMP_V * Math.sqrt(p.jumpMult) * Math.sqrt(p.gravityMult ?? 1) * ((p.gravityMult ?? 1) < 1 ? 1.25 : 1);
     s.onGround = false;
     s.jumpsLeft = p.extraJumps;
     s.slideT = 0;
@@ -219,7 +220,7 @@ export function stepPlayer(s: PState, inp: PInput, p: PhysParams, boxes: Box[], 
   s.crouchHeldPrev = inp.crouch;
 
   // gravity (reduced during dash and wall run)
-  let g = C.GRAVITY;
+  let g = C.GRAVITY * (p.gravityMult ?? 1);
   if (s.dashT > 0) g = 0;
   const wallRunning = p.wallRunTime > 0 && !s.onGround && s.wallT < p.wallRunTime && (s.wallNx !== 0 || s.wallNz !== 0) && moving && s.vy < 2;
   if (wallRunning) { g = C.GRAVITY * 0.12; if (s.vy < -1) s.vy = -1; ev.wallrun = true; }

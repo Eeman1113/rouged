@@ -52,10 +52,10 @@ export abstract class Enemy {
     this.def = ENEMIES[type];
     this.x = x; this.z = z; this.y = this.def.flying ? 2.5 : 0;
     this.patrolX = x; this.patrolZ = z;
-    const hpMult = run.diff.hp * (elite ? 1.5 : 1);
+    const hpMult = run.diff.hp * (elite ? 1.5 : 1) * run.depthHp * (run.mutator === 'swarm' && this.def.hp <= 50 ? 0.6 : 1);
     this.maxHp = Math.round(this.def.hp * hpMult);
     this.hp = this.maxHp;
-    this.dmgMult = run.diff.damage * (elite ? 1.2 : 1);
+    this.dmgMult = run.diff.damage * (elite ? 1.2 : 1) * run.depthDmg * (run.mutator === 'bloodmoon' ? 1.2 : 1);
     this.strafeDir = run.rng.chance(0.5) ? 1 : -1;
     this.cooldown = run.rng.range(0.5, 1.5);
   }
@@ -84,7 +84,8 @@ export abstract class Enemy {
       return;
     }
     if (this.painT > 0) { this.painT -= dt; }
-    this.speedMult = run.frenzy ? 1.3 : 1;
+    this.speedMult = (run.frenzy ? 1.3 : 1) * (run.mutator === 'overclock' ? 1.35 : 1);
+    if (run.mutator === 'overclock' && this.cooldown > 0) this.cooldown -= dt * 0.35;
     this.perceive(run, dt);
     this.think(run, dt);
     // pain anim overrides briefly
@@ -242,6 +243,22 @@ export abstract class Enemy {
     if (this.aiming) { s.aimX = this.lastAimX; s.aimY = this.lastAimY; s.aimZ = this.lastAimZ; }
     return s;
   }
+
+  /** Is a shot travelling along (dx,dz) hitting this enemy's face? */
+  frontal(dx: number, dz: number): boolean {
+    const l = Math.hypot(dx, dz) || 1;
+    const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+    return (dx / l) * fx + (dz / l) * fz < -0.35;
+  }
+
+  /** Shields, armor plates, weak spots. */
+  modifyDamage(_run: Run, dmg: number, _dx: number, _dz: number, _head: boolean): number { return dmg; }
+
+  /** Called once when killed. */
+  onDeath(_run: Run, _by: string): void {}
+
+  /** Some enemies (latched leeches) must not be shoved around. */
+  get pinned(): boolean { return false; }
 
   /** Called on damage; subclasses can override (e.g. flinch, retaliate). */
   onDamaged(run: Run, by: SimPlayer | null) {

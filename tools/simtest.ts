@@ -17,7 +17,8 @@ function handle(m: ServerMsg) {
   if (m.t === 'priv') peds = m.p.pedestals;
   if (m.t === 'events') for (const e of m.ev) {
     counts[e.e] = (counts[e.e] ?? 0) + 1;
-    if (e.e === 'roomLoad') console.log(`room ${e.room.index} ${e.room.kind} biome ${e.room.biome} door ${e.room.door}`);
+    if (e.e === 'roomLoad') console.log(`room ${e.room.index} ${e.room.kind} biome ${e.room.biome} door ${e.room.door} ${e.room.mutator ?? ''}`);
+    if (e.e === 'trueEnding' || e.e === 'extractOffer' || e.e === 'trial' || e.e === 'shop') console.log('EVENT', e.e);
     if (e.e === 'runEnd') console.log('END', JSON.stringify(e.summary[0]).slice(0, 300));
     if (e.e === 'synergy') console.log('SYNERGY', e.synergy);
   }
@@ -29,7 +30,8 @@ const p = run.players.get('p1')!;
 p.mods.maxHp = 100000; p.hp = 100000; // god mode bot
 let seq = 0, t = 0;
 const t0 = Date.now();
-for (let i = 0; i < 30 * 60 * 40 && !ended; i++) {
+const maxRoom = Number(process.argv[3] ?? 45);
+for (let i = 0; i < 30 * 60 * 90 && !ended && (!run.room || run.room.index < maxRoom); i++) {
   t += C.TICK_DT;
   const s = snap as Snapshot | null;
   if (s) {
@@ -48,7 +50,7 @@ for (let i = 0; i < 30 * 60 * 40 && !ended; i++) {
       tx = peds[0].x; tz = peds[0].z;
       if (Math.hypot(me.x - tx, me.z - tz) < 2) run.handle('p1', { t: 'pick', slot: 0 });
     } else {
-      const door = s.doors.find((d) => d.open);
+      const door = s.doors.find((d) => d.open && d.kind !== 'extract');
       if (door) {
         tx = door.x - door.nx * 1.2; tz = door.z - door.nz * 1.2;
         if (Math.hypot(me.x - tx, me.z - tz) < 1.5) run.handle('p1', { t: 'door', slot: door.slot });
@@ -63,4 +65,4 @@ for (let i = 0; i < 30 * 60 * 40 && !ended; i++) {
 }
 console.log('ticks', Math.round(t * 30), 'sim time', t.toFixed(0) + 's', 'wall', Date.now() - t0 + 'ms');
 console.log(counts);
-console.log('state', run.state, 'enemies', [...run.enemies.values()].map((e) => `${e.type}@${e.x.toFixed(1)},${e.y.toFixed(1)},${e.z.toFixed(1)} hp${e.hp.toFixed(0)} spawnT${e.spawnT.toFixed(2)}`), 'queue', run.spawnQueue.length, 'player', p.x.toFixed(1), p.z.toFixed(1), 'wave', run.wave, run.waves.length);
+console.log('room', run.room.index, run.room.kind, run.geo.w, run.geo.d, 'state', run.state, 'enemies', [...run.enemies.values()].map((e) => `${e.type}@${e.x.toFixed(1)},${e.y.toFixed(1)},${e.z.toFixed(1)} hp${e.hp.toFixed(0)} spawnT${e.spawnT.toFixed(2)}`), 'queue', run.spawnQueue.length, 'player', p.x.toFixed(1), p.z.toFixed(1), 'wave', run.wave, run.waves.length);

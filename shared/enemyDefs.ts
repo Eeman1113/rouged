@@ -23,6 +23,12 @@ export const ENEMIES: Record<EnemyType, EnemyDef> = {
   stalker: { type: 'stalker', name: 'STALKER', hp: C.STALKER_HP, radius: 0.45, height: 2.0, headY: 1.75, headR: 0.22, speed: 5.0, flying: false, score: 200, armorDrop: 0, staggerable: true },
   spider: { type: 'spider', name: 'SPIDER', hp: C.SPIDER_HP, radius: 0.7, height: 1.0, headY: 0.6, headR: 0.3, speed: 6.0, flying: false, score: 150, armorDrop: 0, staggerable: true },
   replica: { type: 'replica', name: 'REPLICA', hp: C.REPLICA_HP, radius: 0.45, height: 1.85, headY: 1.6, headR: 0.22, speed: 8.0, flying: false, score: 500, armorDrop: 15, staggerable: true },
+  leech: { type: 'leech', name: 'LEECH', hp: C.LEECH_HP, radius: 0.45, height: 0.7, headY: 0.4, headR: 0.25, speed: 8.0, flying: false, score: 120, armorDrop: 0, staggerable: false },
+  sentinel: { type: 'sentinel', name: 'SENTINEL', hp: C.SENTINEL_HP, radius: 0.8, height: 2.2, headY: 1.75, headR: 0.3, speed: 0, flying: false, score: 300, armorDrop: 10, staggerable: true },
+  bomber: { type: 'bomber', name: 'BOMBER', hp: C.BOMBER_HP, radius: 0.5, height: 1.6, headY: 1.35, headR: 0.24, speed: 7.2, flying: false, score: 150, armorDrop: 0, staggerable: false },
+  mortar: { type: 'mortar', name: 'MORTAR', hp: C.MORTAR_HP, radius: 0.9, height: 1.8, headY: 1.3, headR: 0.32, speed: 2.6, flying: false, score: 250, armorDrop: 0, staggerable: true },
+  bulwark: { type: 'bulwark', name: 'BULWARK', hp: C.BULWARK_HP, radius: 0.9, height: 2.7, headY: 2.35, headR: 0.3, speed: 2.6, flying: false, score: 400, armorDrop: 20, staggerable: true },
+  wraith: { type: 'wraith', name: 'WRAITH', hp: C.WRAITH_HP, radius: 0.55, height: 2.4, headY: 2.0, headR: 0.28, speed: 4.5, flying: false, score: 350, armorDrop: 0, staggerable: true },
   warden: { type: 'warden', name: 'WARDEN', hp: C.WARDEN_HP, radius: 2.4, height: 6.5, headY: 5.4, headR: 0.8, speed: 3.2, flying: false, score: 5000, armorDrop: 50, staggerable: false },
 };
 

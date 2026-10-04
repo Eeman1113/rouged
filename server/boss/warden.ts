@@ -2,9 +2,10 @@ import { Enemy } from '../enemies/base';
 import type { Run } from '../run';
 import type { EnemySnap, EnemyType, ProjectileKind } from '../../shared/protocol';
 
-type Attack = 'fan' | 'slam' | 'ring' | 'homing' | 'charge' | 'snipe' | 'summon' | 'spiral' | 'barrage' | 'teleport';
+type Attack = 'fan' | 'slam' | 'ring' | 'homing' | 'charge' | 'snipe' | 'summon' | 'spiral' | 'barrage' | 'teleport' | 'roots' | 'artillery' | 'brood' | 'static';
 
-const NAMES = ['THE SMELTER', 'THE CURATOR', 'THE FIRST'];
+export const WARDEN_TITLES = ['THE SMELTER', 'THE CURATOR', 'THE FIRST', 'THE MOTHER', 'THE GARDENER', 'THE GENERAL', 'THE HANDLER'];
+const NAMES = WARDEN_TITLES;
 
 /** Multi-phase boss. Variant = biome. Phases at 66% / 33%. */
 export class Warden extends Enemy {
@@ -23,7 +24,7 @@ export class Warden extends Enemy {
   constructor(id: number, x: number, z: number, run: Run, variant: number, hpScale: number) {
     super(id, 'warden', x, z, false, run);
     this.variant = variant;
-    this.maxHp = Math.round(this.def.hp * run.diff.hp * hpScale * (1 + variant * 0.3));
+    this.maxHp = Math.round(this.def.hp * run.diff.hp * hpScale * (1 + variant * 0.3) * run.depthHp);
     this.hp = this.maxHp;
     this.name = NAMES[variant] ?? 'WARDEN';
     this.aware = true;
@@ -34,10 +35,17 @@ export class Warden extends Enemy {
     const p = this.phase;
     if (this.variant === 0) return p === 1 ? ['fan', 'slam', 'charge'] : p === 2 ? ['fan', 'slam', 'charge', 'summon', 'ring'] : ['spiral', 'slam', 'charge', 'ring', 'summon', 'fan'];
     if (this.variant === 1) return p === 1 ? ['homing', 'snipe', 'teleport'] : p === 2 ? ['homing', 'snipe', 'teleport', 'summon', 'fan'] : ['spiral', 'snipe', 'homing', 'teleport', 'ring', 'summon'];
-    return p === 1 ? ['barrage', 'ring', 'fan', 'slam'] : p === 2 ? ['barrage', 'ring', 'homing', 'summon', 'charge'] : ['spiral', 'barrage', 'ring', 'snipe', 'summon', 'charge', 'slam'];
+    if (this.variant === 2) return p === 1 ? ['barrage', 'ring', 'fan', 'slam'] : p === 2 ? ['barrage', 'ring', 'homing', 'summon', 'charge'] : ['spiral', 'barrage', 'ring', 'snipe', 'summon', 'charge', 'slam'];
+    if (this.variant === 3) return p === 1 ? ['brood', 'fan', 'ring'] : p === 2 ? ['brood', 'homing', 'ring', 'slam'] : ['brood', 'spiral', 'homing', 'ring', 'summon'];
+    if (this.variant === 4) return p === 1 ? ['roots', 'fan', 'charge'] : p === 2 ? ['roots', 'brood', 'ring', 'charge'] : ['roots', 'spiral', 'brood', 'snipe', 'ring'];
+    if (this.variant === 5) return p === 1 ? ['artillery', 'barrage', 'charge'] : p === 2 ? ['artillery', 'barrage', 'summon', 'fan', 'charge'] : ['artillery', 'spiral', 'barrage', 'summon', 'slam', 'charge'];
+    // THE HANDLER: it does not chase you. It never did.
+    return p === 1 ? ['static', 'snipe', 'ring'] : p === 2 ? ['static', 'snipe', 'teleport', 'summon', 'homing'] : ['static', 'spiral', 'teleport', 'summon', 'snipe', 'ring'];
   }
 
-  proj(): ProjectileKind { return this.variant === 0 ? 'plasma' : this.variant === 1 ? 'orb' : 'orb'; }
+  proj(): ProjectileKind { return (['plasma', 'orb', 'orb', 'spit', 'spit', 'plasma', 'hex'] as ProjectileKind[])[this.variant] ?? 'orb'; }
+
+  get immobile() { return this.variant === 6; }
 
   think(run: Run, dt: number) {
     // phase transitions
@@ -57,14 +65,15 @@ export class Warden extends Enemy {
     if (!this.attack) {
       this.faceTo(t.x, t.z, dt, 3);
       const d = this.distTo(t);
-      if (d > 14) this.chase(run, t, this.def.speed * rate, dt);
+      if (this.immobile) { this.vx = 0; this.vz = 0; this.anim = 'idle'; }
+      else if (d > 14) this.chase(run, t, this.def.speed * rate, dt);
       else this.strafe(run, t, this.def.speed * 0.6 * rate, dt);
       this.idleT -= dt * rate;
       this.tell = 0;
       if (this.idleT <= 0) {
         const pool = this.pool();
         let a = run.rng.pick(pool);
-        if (a === 'summon' && run.enemies.size > 8) a = pool[0];
+        if ((a === 'summon' || a === 'brood') && run.enemies.size > 8) a = pool[pool.length - 1] === a ? pool[0] : pool[pool.length - 1];
         this.attack = a; this.attackT = 0; this.step = 0; this.stepT = 0;
       }
       return;
@@ -196,7 +205,8 @@ export class Warden extends Enemy {
         this.tell = 1;
         if (this.step === 0 && this.attackT > 0.6) {
           this.step = 1;
-          const types: EnemyType[] = this.variant === 0 ? ['drone', 'drone', 'grunt'] : this.variant === 1 ? ['spider', 'stalker', 'drone'] : ['brute', 'replica', 'drone'];
+          const SUMMONS: EnemyType[][] = [['drone', 'drone', 'grunt'], ['spider', 'stalker', 'drone'], ['brute', 'replica', 'drone'], ['leech', 'wraith', 'leech'], ['spider', 'leech', 'wraith'], ['bulwark', 'grunt', 'bomber'], ['replica', 'wraith', 'replica']];
+          const types = SUMMONS[this.variant] ?? SUMMONS[0];
           const n = this.phase === 3 ? 3 : 2;
           for (let i = 0; i < n; i++) {
             const a = run.rng.range(0, Math.PI * 2);
@@ -232,6 +242,40 @@ export class Warden extends Enemy {
           this.step++; this.stepT = 0.28;
         }
         if (this.attackT > 2.4) this.end(run, 1.4);
+        break;
+      }
+      case 'brood': {
+        // birth: a clutch of leeches
+        this.anim = 'charge';
+        this.tell = Math.min(1, this.attackT / 0.7);
+        if (this.attackT > 0.7 && this.step === 0) {
+          this.step = 1;
+          const n = 3 + this.phase;
+          for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; run.spawnEnemyNear('leech', this.x + Math.cos(a) * 4, this.z + Math.sin(a) * 4); }
+          run.emit({ e: 'explosion', x: this.x, y: 1, z: this.z, r: 4, kind: 'mine' });
+        }
+        if (this.attackT > 1.3) this.end(run, 1.6);
+        break;
+      }
+      case 'roots':
+      case 'artillery':
+      case 'static': {
+        // telegraphed ground strikes under (and around) every player
+        this.anim = this.attack === 'artillery' ? 'attack' : 'charge';
+        this.tell = 0.8;
+        if (!this.immobile) { this.vx *= 0.9; this.vz *= 0.9; }
+        const waves = this.attack === 'static' ? 4 : 3;
+        if (this.stepT <= 0 && this.step < waves) {
+          const r = this.attack === 'artillery' ? 4 : this.attack === 'roots' ? 2.6 : 3;
+          const delay = this.attack === 'artillery' ? 1.3 : 0.9;
+          const kind = this.attack === 'artillery' ? 'rocket' : this.attack === 'roots' ? 'mine' : 'tesla';
+          for (const p of run.targets()) {
+            run.strike(p.x + p.vx * delay * 0.5, p.z + p.vz * delay * 0.5, r, delay, 24 * this.dmgMult, kind);
+            for (let k = 0; k < this.phase + (this.attack === 'static' ? 2 : 0); k++) run.strike(p.x + run.rng.range(-8, 8), p.z + run.rng.range(-8, 8), r, delay + run.rng.range(0, 0.4), 24 * this.dmgMult, kind);
+          }
+          this.step++; this.stepT = this.attack === 'static' ? 0.55 : 0.75;
+        }
+        if (this.attackT > waves * 0.75 + 1) this.end(run, 1.4);
         break;
       }
       case 'teleport': {

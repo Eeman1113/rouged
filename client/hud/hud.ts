@@ -1,6 +1,6 @@
 // HUD: DOM layer (numbers, bars, feeds) + low-res 2D canvas layer (weapon sprite, face, crosshair, hitmarkers).
 
-import type { Pedestal, Rarity, WeaponId } from '../../shared/protocol';
+import type { Pedestal, Rarity, ShopItem, WeaponId } from '../../shared/protocol';
 import { POWERUP_BY_ID, RARITY_COLOR } from '../../shared/powerupDefs';
 import { WEAPONS } from '../../shared/weaponDefs';
 import * as C from '../../shared/constants';
@@ -45,12 +45,13 @@ export class Hud {
   constructor(root: HTMLElement, private canvas: HTMLCanvasElement) {
     this.root = root;
     root.innerHTML = `
-      <div class="hud-tl"><div class="room" id="h-room"></div><div class="seed" id="h-seed"></div><div class="score" id="h-score">0</div></div>
+      <div class="hud-tl"><div class="room" id="h-room"></div><div class="seed" id="h-seed"></div><div class="score" id="h-score">0</div><div class="scrap" id="h-scrap">◆ 0</div></div>
       <div class="hud-tc">
         <div class="boss hidden" id="h-boss"><div class="boss-name"></div><div class="boss-bar"><div class="boss-fill"></div></div><div class="boss-phase"></div></div>
         <div class="timer hidden" id="h-timer"></div>
         <div class="wave hidden" id="h-wave"></div>
         <div class="left" id="h-left"></div>
+        <div class="mutator hidden" id="h-mut"></div>
       </div>
       <div id="h-killfeed"></div>
       <div id="h-announce"></div>
@@ -73,7 +74,7 @@ export class Hud {
       </div>
       <div id="h-xp"><div class="fill"></div><div class="lvl">LV 1</div></div>
       <div id="h-pops"></div>`;
-    for (const id of ['h-room', 'h-seed', 'h-score', 'h-boss', 'h-timer', 'h-wave', 'h-left', 'h-handler', 'h-combo', 'h-prompt', 'h-pedestal', 'h-chat', 'h-powerups', 'h-hp', 'h-ar', 'h-ammo', 'h-weapons', 'h-dash', 'h-xp']) this.els[id] = $(root, '#' + id);
+    for (const id of ['h-scrap', 'h-mut', 'h-room', 'h-seed', 'h-score', 'h-boss', 'h-timer', 'h-wave', 'h-left', 'h-handler', 'h-combo', 'h-prompt', 'h-pedestal', 'h-chat', 'h-powerups', 'h-hp', 'h-ar', 'h-ammo', 'h-weapons', 'h-dash', 'h-xp']) this.els[id] = $(root, '#' + id);
     this.killfeed = new KillFeed($(root, '#h-killfeed'));
     this.announcer = new Announcer($(root, '#h-announce'));
     this.pops = new DamageNumbers($(root, '#h-pops'));
@@ -220,8 +221,42 @@ export class Hud {
     el.classList.add('on');
   }
 
-  handlerSay(text: string, glitch: number) {
+  setScrap(n: number) {
+    const el = this.els['h-scrap'];
+    const t = '◆ ' + n;
+    if (el.textContent !== t) { el.textContent = t; el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+  }
+
+  setMutator(text: string | null) {
+    const el = this.els['h-mut'];
+    if (!text) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    el.textContent = '⚠ ' + text;
+  }
+
+  shopInfo(item: ShopItem | null, key: string, scrap: number) {
+    const el = this.els['h-pedestal'];
+    if (!item) { el.classList.remove('on'); return; }
+    const can = scrap >= item.price;
+    if (item.kind === 'powerup' && item.offer) {
+      const def = POWERUP_BY_ID[item.offer.id];
+      const sc = { common: 0.4, rare: 1, epic: 2, legendary: 1 }[item.offer.rarity];
+      const color = RARITY_COLOR[item.offer.rarity];
+      el.style.borderColor = color;
+      el.innerHTML = `<div class="r" style="color:${color}">${item.offer.rarity.toUpperCase()} · ${def.category.toUpperCase()}</div><div class="nm" style="color:${color}">${esc(def.name)}</div><div class="ds">${esc(def.desc(sc))}</div>
+        <div class="k" style="color:${can ? '#2affd0' : '#ff4a4a'}">[${key}] BUY — ${item.price} SCRAP${can ? '' : ' (NOT ENOUGH)'}</div>`;
+    } else {
+      el.style.borderColor = '#2affd0';
+      el.innerHTML = `<div class="nm" style="color:#2affd0">${item.kind === 'heal' ? 'FIELD REPAIR' : 'PLATING'}</div><div class="ds">${item.kind === 'heal' ? 'Restore 60 HP.' : '+50 armor.'}</div>
+        <div class="k" style="color:${can ? '#2affd0' : '#ff4a4a'}">[${key}] BUY — ${item.price} SCRAP${can ? '' : ' (NOT ENOUGH)'}</div>`;
+    }
+    el.classList.add('on');
+  }
+
+  handlerSay(text: string, glitch: number, who = 'HANDLER') {
     const el = this.els['h-handler'];
+    (el.querySelector('.who') as HTMLElement).textContent = who;
+    el.dataset.who = who;
     (el.querySelector('.txt') as HTMLElement).textContent = text;
     el.classList.add('on');
     if (glitch > 0.3) { el.classList.remove('glitch'); void el.offsetWidth; el.classList.add('glitch'); }

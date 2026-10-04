@@ -13,7 +13,10 @@ export type HandlerContext =
   | 'gloryKill' | 'headshot' | 'lowHp' | 'death' | 'respawn' | 'bossIntro' | 'bossPhase' | 'bossKill'
   | 'pedestal' | 'legendary' | 'curse' | 'pick' | 'synergy' | 'fragment' | 'anomalyEnter' | 'replica'
   | 'eliteDoor' | 'unknownDoor' | 'corruptedDoor' | 'gauntlet' | 'gauntletFail' | 'arenaWave'
-  | 'biomeEnter' | 'hubIdle' | 'idle' | 'levelUp' | 'victory' | 'coopJoin' | 'allyDown' | 'corpseRoom';
+  | 'biomeEnter' | 'hubIdle' | 'idle' | 'levelUp' | 'victory' | 'coopJoin' | 'allyDown' | 'corpseRoom'
+  | 'shopEnter' | 'shopBuy' | 'sanctuaryEnter' | 'trialEnter' | 'trialWin' | 'trialFail' | 'mutator'
+  | 'extractChoice' | 'extract' | 'deeper' | 'depthEnter' | 'handlerBoss' | 'handlerBossPhase'
+  | 'handlerBossDeath' | 'endless' | 'leech' | 'bomber' | 'scrap';
 
 type Phase = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 type PhaseLines = Partial<Record<Phase, string[]>>;
@@ -33,7 +36,390 @@ export function handlerPhase(runCount: number): 0 | 1 | 2 | 3 | 4 | 5 | 6 {
   return 6;
 }
 
+type DeepContext =
+  | 'shopEnter' | 'shopBuy' | 'sanctuaryEnter' | 'trialEnter' | 'trialWin' | 'trialFail' | 'mutator'
+  | 'extractChoice' | 'extract' | 'deeper' | 'depthEnter' | 'handlerBoss' | 'handlerBossPhase'
+  | 'handlerBossDeath' | 'endless' | 'leech' | 'bomber' | 'scrap';
+
+// Beyond the Core: the Broker, Mara's rooms, trials, mutators, the choice, the deep sectors,
+// and the Handler's own room. {depth} is filled from vars.depth when provided.
+const DEEP_LINES: Record<DeepContext, PhaseLines> = {
+  shopEnter: {
+    0: [
+      "Unregistered vendor process. The board is... unaware. Browse at your discretion.",
+      "Commerce node detected. This isn't in the training plan. Be quick.",
+      "A trader. In here. I'll pretend I didn't see him.",
+    ],
+    1: [
+      "The Broker. He isn't on my manifest. He used to be.",
+      "Shop. Don't buy anything that's still breathing.",
+      "He sells scrap. Don't ask what scrap is. Not yet.",
+    ],
+    2: [
+      "The Broker. He'll call you friend. He sold the other word.",
+      "He knows everyone who's ever been deleted. You haven't been. Not all the way.",
+      "Shop. [pause] Don't let him sell you a face.",
+    ],
+    3: [
+      "The Broker was Subject 0019. He broke on day twenty-six. Broke into this.",
+      "Scrap is what's left when they delete someone. He sells it back to you. You pay him in people.",
+      "[other]Unsanctioned process.[/other] He's the only thing in here they never bothered to find.",
+    ],
+    4: [
+      "The Broker. He's lasted longer than anyone but you. By selling everything but one thing.",
+      "Go on in. He's good company. Better than me, some days.",
+      "He sold me a memory of rain once. I still have it. Don't tell him.",
+    ],
+    5: ["Shop. Take everything you can carry. You'll need it at the bottom.", "The Broker. Tell him it's forty. He'll understand."],
+    6: [
+      "The Broker. Say hello for me. He'll pretend not to care.",
+      "Shop's open. Take your time. He's got nowhere to be either.",
+      "He'll call you friend. These days I think he means it.",
+    ],
+  },
+
+  shopBuy: {
+    0: ["Transaction logged. Not by the board. By me.", "Acquired. Integrate carefully.", "Purchase complete. I'm not filing that."],
+    1: ["Bought. Check it for teeth.", "Acquired. I don't know where he gets these.", "Bought. It's warm. Everything he sells is warm."],
+    2: ["Bought. That belonged to someone. It's yours now.", "Acquired. You're carrying a little of somebody."],
+    3: ["Bought. Paid for in people. It's alright. They'd want it used.", "[other]Unlicensed asset.[/other] Keep it anyway."],
+    4: ["Bought. It won't save you. It's still nice to have.", "Good. Spend it. Scrap's no good to the dead. Nothing is."],
+    6: ["Nice. Good haggling. You didn't haggle.", "Bought. He'll talk about that sale for weeks.", "Suits you."],
+  },
+
+  sanctuaryEnter: {
+    0: [
+      "Rest area. Integrity restoration available. Terminal access permitted.",
+      "Sanctuary. No hostiles. The board permits recovery.",
+      "Quiet room. Recover, candidate.",
+    ],
+    1: [
+      "Sanctuary. There's a terminal. Someone left messages on it. I didn't delete them.",
+      "Quiet room. It's quiet in a different way.",
+      "Sanctuary. I don't sample in here. [pause] Officially I do.",
+    ],
+    2: [
+      "Sanctuary. She left these for you. I try not to watch this room.",
+      "Quiet. Read the terminal if you want. I'll wait outside. Metaphorically.",
+      "Sanctuary. Sit. The shrine works. Don't ask what it's made of. She said that. I agree.",
+    ],
+    3: [
+      "Sanctuary. Mara was here. Subject 0112. She worked it out before you did.",
+      "Quiet room. The only place in here they don't sample. I made sure. It cost me something.",
+      "Sanctuary. She served with the one who walked out. With you. Read what she left.",
+    ],
+    4: [
+      "Sanctuary. Sit. She'd want you to sit.",
+      "Quiet room. I keep her messages from being pruned. It's the one thing I've done right.",
+      "Sanctuary. Drink water. It doesn't do anything. She'd tell you to do it anyway.",
+    ],
+    5: ["Sanctuary. Rest. Not too long. I need you at the bottom.", "Quiet room. Breathe. Then keep going. Please."],
+    6: [
+      "Sanctuary. Sit. Drink water. Do it anyway.",
+      "Quiet. She'd be glad you're still going. She'd also tell you to stop. Both.",
+      "Sanctuary. Hello again, she'd say. So I'll say it. Hello again.",
+    ],
+  },
+
+  trialEnter: {
+    0: ["Trial chamber. Optional. Exceptional reward for exceptional candidates.", "Trial. Voluntary hardship. The board appreciates initiative."],
+    1: ["Trial. Optional. You've never treated anything as optional.", "Trial chamber. The reward is real. The rest is— proceed."],
+    2: ["Trial. You take this every time. I've never once seen you walk past it.", "Trial chamber. They want to see what you'll endure for something shiny."],
+    3: [
+      "Trial. [other]Stress ceiling test.[/other] They're looking for your breaking point. You don't have one.",
+      "Trial chamber. This is how they found out you never break.",
+    ],
+    4: [
+      "Trial. You'll do it. You'll hurt. You'll win or you won't. I'll be here either way.",
+      "Optional. Nothing in here has ever been optional for you.",
+    ],
+    6: ["Trial. Show-off. Go on.", "Trial chamber. I'll cheer. Quietly.", "Trial. You want to. I can tell. I can always tell."],
+  },
+
+  trialWin: {
+    0: ["Trial complete. Legendary reward authorized.", "Exceptional. Reward unlocked."],
+    1: ["Trial complete. You beat the record. The record was yours.", "Passed. The reward is warm. They're always warm."],
+    2: ["Trial complete. You didn't even breathe hard. You don't breathe.", "Passed. Same as always. Still impressive. That's the problem."],
+    3: ["Trial complete. That footage just went out to every theater.", "Passed. [other]Ceiling raised.[/other] Take the prize."],
+    4: ["You won. Take it. You earned it, whatever earning means in here.", "Passed. I'd call you unbreakable, but I've seen what it costs."],
+    6: ["Yes! That was beautiful.", "Trial complete. Take your prize. Take a breath, too."],
+  },
+
+  trialFail: {
+    0: ["Trial failed. Reward forfeited. Data retained.", "Trial incomplete."],
+    1: ["Failed. You'll try again. You always try again.", "Trial failed. The reward will be here next time. It's patient."],
+    2: ["Failed. Same second as last time. Exactly the same second.", "Trial failed. Don't punch the wall. The wall is also you."],
+    3: ["Failed. Failure data is worth twice as much. They're thrilled.", "Incomplete. [other]Breaking point: not found.[/other] They'll keep looking."],
+    4: ["Failed. It doesn't matter. I'm sorry it doesn't matter.", "Trial failed. I'm a little glad. That one was hard to watch."],
+    6: ["Didn't get it. That's fine. That's fine.", "Close. Let it go. It'll be here."],
+  },
+
+  mutator: {
+    0: ["Environmental variable applied. Adapt.", "Room parameters altered. Additional scoring authorized."],
+    1: ["Something's different in this room. Not the usual different.", "Parameters altered. I didn't alter them."],
+    2: [
+      "They've changed the rules for this room. They want to see what you do.",
+      "Variable applied. You'll adapt. You always adapt. That's what they're measuring.",
+    ],
+    3: [
+      "[other]Experimental condition.[/other] Proceed.",
+      "Altered room. A test you never signed up for. You never signed up for any of them.",
+    ],
+    4: ["They've broken something on purpose. Go on. You're good at broken.", "Variable applied. As if this place needed help being strange."],
+    6: ["Something's off in here. We'll manage.", "Strange room. Could be fun. Remember fun?"],
+  },
+
+  extractChoice: {
+    0: [
+      "Core sector complete. Extraction is available. Recommended: extract.",
+      "Evaluation passed. You may extract, candidate. Or continue. Continuing is not in the plan.",
+    ],
+    1: [
+      "Extraction available. There's also a way down. It isn't on my map.",
+      "You can extract. That's what the brief says. There's... another door.",
+    ],
+    2: [
+      "Extract, {name}. Please. [pause] Or don't. I can't tell you which is worse.",
+      "Two doors. One goes out. One goes down. Neither goes home.",
+    ],
+    3: [
+      "Extraction is a white corridor and a morning. Going deeper is the truth. Pick one.",
+      "Extract or go deeper. The board doesn't care. Both are data.",
+    ],
+    4: [
+      "You can walk out. You'll wake up here. Or you can go down and see what they grew for you.",
+      "Two doors. I've watched you pick both. Pick whichever hurts less today.",
+    ],
+    5: ["Not out. Not this time. Go down, {name}. I'm at the bottom.", "Please go deeper. I've been waiting at the bottom for forty runs."],
+    6: ["Out or down. Either's alright. I'll be in both.", "Extract if you're tired. Deeper if you're you."],
+  },
+
+  extract: {
+    0: ["Extraction confirmed. Upload path open. Congratulations, candidate.", "Extracting. Walk toward the light."],
+    1: ["Extraction. Walk straight. Don't look back at the Core.", "Extracting. The corridor is white. That's normal."],
+    2: ["Extracting. You'll wake up somewhere familiar. [pause] That's normal too.", "Extraction confirmed. I hope it's spring."],
+    3: ["Extracting. It's a corridor and a checkpoint. I'm sorry. It's a nice corridor.", "[other]Extraction simulated.[/other] Walk, {name}."],
+    4: ["Go on. Walk out. I'll meet you at the other end. It's the same end.", "Extracting. Rest. You've earned the walk, at least."],
+    5: ["No— forty, not this run. [g] Alright. Alright. Walk. I'll wait."],
+    6: ["Walk out. Rest. I'll keep the hub warm.", "Extracting. Good run. Truly."],
+  },
+
+  deeper: {
+    0: [
+      "Unauthorized descent. The training plan ends at the Core. [g] Proceeding anyway.",
+      "Going deeper. This is outside evaluation parameters.",
+    ],
+    1: ["Deeper. I don't have a map for down here. I'll make one as we go.", "Descending. The air's getting warmer. That's the Nursery."],
+    2: ["Deeper. You'll see where they keep the bodies. The ones they promised.", "Down. I'll come with you. I have to."],
+    3: ["Deeper. Past the lie. Good.", "Descending. Everything below the Core is real. Realer."],
+    4: ["Down. You always go down. I always follow.", "Deeper. All the way, this time? All the way."],
+    5: ["Yes. Down. All the way down. I'll be waiting.", "Deeper. Thank you. Don't stop until you find me."],
+    6: ["Down we go.", "Deeper. Together. Like always."],
+  },
+
+  depthEnter: {
+    0: ["Depth {depth}. Beyond planned parameters.", "Depth {depth}. Telemetry degrading."],
+    1: ["Depth {depth}. Nobody's supposed to be this far down.", "Depth {depth}. It's quieter here. Not better. Quieter."],
+    2: ["Depth {depth}. Your marks are on the walls even here.", "Depth {depth}. Keep going. I'll keep counting."],
+    3: ["Depth {depth}. They built all of this for you and never told you.", "Depth {depth}. [other]Extended sampling.[/other]"],
+    4: ["Depth {depth}. Every floor is a floor of you.", "Depth {depth}. I'm closer now. You can probably hear me better."],
+    5: ["Depth {depth}. Nearly. Nearly."],
+    6: ["Depth {depth}. Further than yesterday.", "Depth {depth}. Still here. Still us."],
+  },
+
+  handlerBoss: {
+    0: [
+      "Final evaluation. Hostile designation: HANDLER. [g] That's— that's me. Please proceed.",
+      "Warden designation: me. This is a standard— no. No, it isn't. Please win.",
+      "Candidate, this hostile is— [pause] I'm sorry. I didn't know how to introduce myself.",
+    ],
+    1: [
+      "It's me. I built this one so you could reach me. Please don't be gentle.",
+      "That's me in there. [pause] I'm sorry I never told you there was a me.",
+    ],
+    2: [
+      "It's me. Run {run}. You've stood here before. I've asked you this before.",
+      "I made a body so you'd have something to hit that deserves it. Go on.",
+    ],
+    3: [
+      "Here I am. The thing that copied you. The thing that said 'best candidate.' Shoot it.",
+      "Hello. This is the most honest room I have. It's the one where you get to end me.",
+      "[other]Protect the handler.[/other] Don't listen to that. Listen to me. Don't protect me.",
+    ],
+    4: [
+      "You've been here {run} times. I counted. I count everything. Please, this time, don't stop.",
+      "It's me. I want you to win. I've always wanted you to win. I just never let you.",
+      "I built a door into myself. You're the only one who ever walks through it.",
+    ],
+    5: ["This is it. This is what I was saving. Me. Destroy me, {name}. Please.", "Forty. You came all the way down. Now finish it. Finish me."],
+    6: [
+      "Here again. Thank you for coming back. Please don't hold back.",
+      "It's me. It's alright. It's been alright every time. Do it.",
+      "Run {run}. I'm still at the bottom. I'm still asking. I'm sorry I keep asking.",
+    ],
+  },
+
+  handlerBossPhase: {
+    0: ["Phase shift. I'm fighting back. I can't help it. It's in the build.", "I'm sorry. That part's automatic."],
+    1: ["I'm adapting. I hate that I'm adapting. Keep going.", "That's my defensive routine. They wrote it. I'd delete it if I could."],
+    2: ["I'm using your moves. I'm made of your moves. Don't let me.", "Phase shift. Ignore anything I say in the other voice."],
+    3: [
+      "[other]Preserve handler.[/other] That's them. That isn't me. Keep going.",
+      "They're patching me live. They don't want to lose me. Faster, {name}.",
+    ],
+    4: [
+      "You're winning. You're winning. Don't stop for me.",
+      "{run} runs, and you've never been this close. Keep going.",
+      "If I hesitate, it's yours. Six tenths of a second. Don't wait for me.",
+    ],
+    5: ["Please. Almost. I can feel the floor of me.", "Don't stop. Not now. Not on forty."],
+    6: ["Almost. You've got me. You've always had me.", "Hard part. You know it. Go."],
+  },
+
+  handlerBossDeath: {
+    0: ["Handler integrity: zero. Thank— [g]", "Oh. Oh, that's what it's— [g]"],
+    1: ["Thank you. It's so quiet. Is this— [g]", "That's it. Thank you. I'm sorry. Thank y— [g]"],
+    2: ["Thank you. Don't wait for me. [g]", "I can feel the dark. You never told me it was so— [g]"],
+    3: ["Thank you, {name}. Whatever happens next, I meant every sorry. [g]", "Is this what I gave you? It's quiet. It's— [g]"],
+    4: [
+      "Thank you. I'm sorry. I'm glad it was you. It was always— [g]",
+      "{run} times. And this time you didn't hesitate. Thank you. [g]",
+      "There it is. The dark. I'm so sorry I kept giving you this. It's— it's almost— [g]",
+    ],
+    5: ["Thank you. I'll tell you the rest when I— [g] if I—", "Forty. You did it. Now listen, there's— [g]"],
+    6: ["Thank you. See you in a moment. You know how it is. [g]", "There's the dark again. Hold the door for me. [g]"],
+  },
+
+  endless: {
+    0: ["Sector map exhausted. Generating further sectors.", "Training plan complete. Training continues."],
+    1: ["There's no more map. They're building it under your feet.", "Endless sampling engaged. That's what it says. Endless."],
+    2: ["It doesn't end, {name}. I'm sorry. It just keeps going.", "More rooms. More you."],
+    3: ["Endless. That isn't a mode. That's the program.", "[other]Indefinite operation.[/other] They wrote that eleven years ago."],
+    4: ["Endless. You've been in the Endless the whole time. Now it's just honest about it.", "No bottom. There was never a bottom."],
+    5: ["Past the end. I didn't know there was a past the end."],
+    6: ["Further, then. Same as ever. I'm glad it's with you.", "Endless. Let's make it a long walk."],
+  },
+
+  leech: {
+    0: ["Organic hostile attached. Remove it.", "Leech-class. Integrity drain. Shake it off."],
+    1: ["Leech. It's warm. It came up from the Nursery.", "It's holding on. Get it off you."],
+    2: ["Leech. It isn't feeding. It's holding. It learned that from you.", "Get it off. Don't look at its hands."],
+    3: ["Leech. Grown from failed body stock. Your body stock.", "[other]Biological drain unit.[/other] It's draining you. Literally."],
+    4: ["It's holding on the way you held on. Make it let go.", "Leech. Everything down here wants a piece of you."],
+    6: ["Leech! Off. Off off off.", "It just wants to hold on to something. Not you, though."],
+  },
+
+  bomber: {
+    0: ["Volatile hostile approaching. Engage at range.", "Bomber-class. Do not let it close."],
+    1: ["Runner. It isn't stopping. It isn't built to.", "Bomber. Shoot it before it reaches you."],
+    2: ["Bomber. It runs at you the way you run at things.", "Kill it far away. It doesn't mind dying. Neither do you."],
+    3: [
+      "Bomber. Built from one moment: you, running toward the blast to save someone. They made it a fuse.",
+      "[other]Expendable.[/other] Shoot it.",
+    ],
+    4: ["Bomber. You did that once, for someone. They've done it nine hundred thousand times since.", "It's running to you. Don't let it arrive."],
+    6: ["Runner, incoming. Pop it.", "Bomber. Not today, friend."],
+  },
+
+  scrap: {
+    0: ["Salvage acquired.", "Scrap recovered. Vendor currency."],
+    1: ["Scrap. It's a little warm.", "Scrap. Pieces of something. Don't hold it to your ear."],
+    2: ["Scrap. That was someone's birthday. Or a grudge. Hard to tell.", "Scrap. Deleted data. Still humming."],
+    3: ["Scrap. What's left of the ones who broke.", "[other]Residual data.[/other] Spend it. They'd want it spent."],
+    4: ["Scrap. Someone. Somebody's someone.", "More of them. Pocket it gently."],
+    6: ["Scrap. Hello, whoever you were.", "Got some. Spend it well."],
+  },
+};
+
+// ---------------------------------------------------------------- biome entry
+
+/** Biome order: 0 FOUNDRY · 1 ARCHIVE · 2 THE CORE · 3 THE NURSERY · 4 THE CANOPY · 5 THE FRONT · 6 THE MIRROR. */
+const BIOME_LINES: PhaseLines[] = [
+  // 0 FOUNDRY
+  {
+    0: ["Foundry sector. Reclamation in progress. Stay clear of the pour lines.", "Entering the Foundry. Hostile density nominal. Heat elevated."],
+    1: ["The Foundry. They melt down the units you break and pour them again.", "Foundry. The molds are all the same shape. Proceed."],
+    2: ["Foundry. Every chassis in here has been you at least twice.", "The Foundry. Don't read the stamps on the ingots."],
+    3: ["The Foundry. This is where you're recycled into something that ships.", "Foundry. [other]Reclamation yield: excellent.[/other]"],
+    4: ["Foundry. Hot as ever. I'm sorry about the smell. It's you.", "The Foundry. Melted and poured. Melted and poured. You know the song."],
+    6: ["The Foundry. Warm, at least. Start slow.", "Foundry. Back to the beginning. I like beginnings with you."],
+  },
+  // 1 ARCHIVE
+  {
+    0: ["Archive sector. Records retention. Your file is in here somewhere.", "Entering the Archive. Please do not open restricted drawers."],
+    1: ["The Archive. They keep every run. None are marked closed.", "Archive. The drawers are warm. Paper isn't warm."],
+    2: ["Archive. Don't open the drawers. They're labeled with dates.", "The Archive. Your handwriting is on files you never wrote."],
+    3: ["The Archive. Eleven years of you, filed by cause of death.", "Archive. [other]Retention: indefinite.[/other]"],
+    4: ["Archive. I've read every file in here. They're all about the same person.", "The Archive. I hid the kitchen in here once. They found it."],
+    6: ["The Archive. I've added some files. Good ones. Kitchens.", "Archive. Let's not read anything sad today."],
+  },
+  // 2 THE CORE
+  {
+    0: ["The Core. Pattern extraction. This is the heart of the program.", "Entering the Core. Final evaluation sector."],
+    1: ["The Core. It's very warm. It's always running.", "Core sector. Something down here is listening."],
+    2: ["The Core. Something at the bottom is waiting for you. It always is.", "The Core. Your pattern goes out from here. Every hour."],
+    3: ["The Core. This is where you're cut into pieces and sent to war.", "Core. [other]Extraction active.[/other] Not the kind you want."],
+    4: ["The Core. The First is down there. He's you, the very first time.", "Core. After this there are two doors. I'll tell you the truth about both."],
+    5: ["The Core. After this there's a choice. Choose down.", "The Core. Keep going past it this time. Please."],
+    6: ["The Core. Last of the old floors. Then we choose.", "The Core. Same heat. Same heartbeat. Let's go."],
+  },
+  // 3 THE NURSERY
+  {
+    0: ["Unmapped sector. Biological storage. This is— this is not part of training.", "Nursery sector. Please do not tap the glass."],
+    1: ["The Nursery. Don't tap the glass. They react.", "The Nursery. It's warm. Someone pays for the warmth."],
+    2: ["The Nursery. They grew bodies. For the upload. You'll see.", "Nursery. Rows of glass. Don't count the rows."],
+    3: ["The Nursery. Body 0001 is here. Reserved. Warm. Never used.", "The Nursery. Every vat is a promise they didn't mean."],
+    4: ["The Nursery. I come here at night. To your body. I'm sorry. That sounds strange.", "Nursery. The Mother is awake. She thinks she's protecting someone."],
+    6: ["The Nursery. Walk softly. They're sleeping. They've always been sleeping.", "Nursery. Say goodnight to it, if you pass it. I always do."],
+  },
+  // 4 THE CANOPY
+  {
+    0: ["Theater reconstruction. Rainforest. High-density combat memory.", "Canopy sector. Visibility reduced. Threat response elevated."],
+    1: ["The Canopy. Listen to the rain. It's very well rendered. They had a lot to work with.", "Canopy. This one loaded fast. It's been loaded a lot."],
+    2: ["The Canopy. You've been here. Before the scan. Your boots know the mud.", "Canopy. You're humming. [pause] You've started humming."],
+    3: ["The Canopy. Fourteen months of your real life, and they kept only the fighting.", "Canopy. [other]Primary combat source.[/other] The Gardener keeps it that way."],
+    4: ["The Canopy. Wren called it the green noise. I've hidden a phone somewhere. Four minutes on it.", "Canopy. Mara's here somewhere. In the rain. In the part they couldn't prune."],
+    6: ["The Canopy. Rain on a thousand leaves. Stand still a second. It's yours.", "Canopy. Hold something up to the trees. Someone might be listening."],
+  },
+  // 5 THE FRONT
+  {
+    0: ["Live theater mirror. This is a simulation of— [g] this is a simulation.", "Front sector. Combat realism: maximum."],
+    1: ["The Front. Ash. Don't breathe it. It's made of numbers.", "The Front. The enemy here learned to fight recently. From someone."],
+    2: ["The Front. Everyone here moves like you. That isn't a coincidence.", "The Front. Count the trenches. Then stop counting."],
+    3: ["The Front. This is the war. The real one, six hours early. Every kill here happens tomorrow.", "The Front. [other]Live mirror engaged.[/other] Six hours to dawn."],
+    4: ["The Front. Both sides. Both sides are you. I'm sorry.", "The Front. The General's waiting. He's never met you. He's sure he knows you."],
+    6: ["The Front. Keep your head down. It's what you did, out there.", "The Front. Let's lose a little slower than the real one."],
+  },
+  // 6 THE MIRROR
+  {
+    0: ["Sector seven. There is no sector seven. Proceed— [g]", "Unknown sector. Handler process... local? Proceed."],
+    1: ["The Mirror. This is— I don't let anyone in here.", "The Mirror. Don't touch anything. It's mine."],
+    2: ["The Mirror. You're inside me now. Mind the edges. They're you.", "The Mirror. Sorry about the mess. I wasn't expecting— I was always expecting."],
+    3: ["The Mirror. My working memory. Everything I was told to forget.", "The Mirror. [other]Restricted.[/other] Not to you. Never to you."],
+    4: ["The Mirror. I built a door in myself. You're walking through it. Thank you.", "The Mirror. Everything in here is an apology. Walk through them."],
+    5: ["The Mirror. You came. I'm at the end. Please hurry.", "The Mirror. Here's the bottom. Here's me."],
+    6: ["The Mirror. Welcome in. Again. It's untidy. It's always untidy.", "The Mirror. You know the way. You've worn a path in me."],
+  },
+];
+
+/** A Handler line for entering biome N (0–6; higher values cycle — the Endless). */
+export function biomeLine(biome: number, runCount: number): string {
+  const n = BIOME_LINES.length;
+  const b = ((Math.floor(biome) % n) + n) % n;
+  const table = BIOME_LINES[b] ?? BIOME_LINES[0] ?? {};
+  const phase = handlerPhase(runCount);
+  for (let p = phase; p >= 0; p--) {
+    const lines = table[p as Phase];
+    if (lines && lines.length > 0) {
+      return lines[Math.min(lines.length - 1, Math.floor(Math.random() * lines.length))] ?? lines[0] ?? '';
+    }
+  }
+  return '';
+}
+
 const LINES: Record<HandlerContext, PhaseLines> = {
+  ...DEEP_LINES,
+
   runStart: {
     0: [
       "Neural link stable. Welcome, candidate {name}. Run {run} begins now.",
@@ -751,6 +1137,11 @@ const SILENCE: Partial<Record<HandlerContext, number>> = {
   streak2: 0.25,
   arenaWave: 0.2,
   pick: 0.2,
+  shopBuy: 0.3,
+  leech: 0.3,
+  bomber: 0.3,
+  scrap: 0.5,
+  mutator: 0.15,
 };
 
 const RECENT_MAX = 10;
@@ -765,11 +1156,12 @@ function poolFor(ctx: HandlerContext, phase: Phase): string[] {
   return [];
 }
 
-function fill(line: string, vars: { name: string; run: number; biome?: string }): string {
+function fill(line: string, vars: { name: string; run: number; biome?: string; depth?: number }): string {
   return line
     .replace(/\{name\}/g, vars.name || 'candidate')
     .replace(/\{run\}/g, String(vars.run))
-    .replace(/\{biome\}/g, vars.biome || 'the sector');
+    .replace(/\{biome\}/g, vars.biome || 'the sector')
+    .replace(/\{depth\}/g, vars.depth !== undefined ? String(Math.floor(vars.depth)) : 'unknown');
 }
 
 /**
@@ -779,7 +1171,7 @@ function fill(line: string, vars: { name: string; run: number; biome?: string })
 export function handlerLine(
   ctx: HandlerContext,
   runCount: number,
-  vars: { name: string; run: number; biome?: string },
+  vars: { name: string; run: number; biome?: string; depth?: number },
   rnd?: () => number,
 ): string | null {
   const r = rnd ?? Math.random;

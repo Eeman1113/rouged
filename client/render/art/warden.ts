@@ -8,7 +8,7 @@ const ORB_HOT = 0xffe0ff, ORB = 0xe040ff, ORB_EDGE = 0x8a1aa8;
 interface WStyle { a: number; b: number; c: number; d: number; trim: number; elite: boolean }
 
 /** Molten pool texture inside an area (emissive). */
-function molten(p: Pix, r: Rng, x0: number, y0: number, w: number, h: number, heat: number): void {
+export function molten(p: Pix, r: Rng, x0: number, y0: number, w: number, h: number, heat: number): void {
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const v = (y / h) * 0.8 + (1 - heat) * 0.4 + (r() - 0.5) * 0.35 + (bayer(x, y) - 0.5) * 0.2;
@@ -17,7 +17,7 @@ function molten(p: Pix, r: Rng, x0: number, y0: number, w: number, h: number, he
     }
 }
 
-function rivetRow(l: Pix, x0: number, x1: number, y: number, step: number, col: number): void {
+export function rivetRow(l: Pix, x0: number, x1: number, y: number, step: number, col: number): void {
   for (let x = x0; x <= x1; x += step) if (l.has(x, y)) { l.set(x, y, col); l.tint(x + 1, y + 1, (c) => lit(c, -0.6)); }
 }
 

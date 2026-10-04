@@ -1,7 +1,8 @@
 // Room generation from authored chunk templates + a seed. Deterministic: same RoomDesc → same geometry,
 // on the client (rendering, physics) and server (AI, validation).
 
-import type { BiomeId, DoorKind, RoomDesc, RoomKind, Vec3 } from './protocol';
+import type { BiomeId, DoorKind, Mutator, RoomDesc, RoomKind, Vec3 } from './protocol';
+import * as C from './constants';
 import { Rng, mixSeed } from './rng';
 
 export type BoxMat = 'wall' | 'pillar' | 'crate' | 'platform' | 'trim' | 'anomaly' | 'door' | 'alcove';
@@ -20,6 +21,7 @@ export interface DoorSlot {
   nx: number; nz: number; // inward normal
   kind: DoorKind;
   nextKind: RoomKind;
+  mutator?: Mutator;
   panel: Box; // blocking panel while closed
   entry: boolean; // the door you came in through (always sealed)
 }
@@ -27,7 +29,7 @@ export interface DoorSlot {
 export interface Light { x: number; y: number; z: number; color: number; intensity: number; range: number }
 
 export interface Decor {
-  kind: 'terminal' | 'corpse' | 'body' | 'mirror' | 'tally' | 'text' | 'cable' | 'server' | 'vat' | 'pipe' | 'chair';
+  kind: 'terminal' | 'corpse' | 'body' | 'mirror' | 'tally' | 'text' | 'cable' | 'server' | 'vat' | 'pipe' | 'chair' | 'foliage' | 'vendor' | 'shrine' | 'wreck';
   x: number; y: number; z: number;
   nx: number; nz: number; // facing normal for wall-mounted decor
   v?: number;
@@ -61,52 +63,79 @@ const DOOR_W = 3.2;
 const DOOR_H = 4.2;
 const ALCOVE = 2.6;
 
-export const BIOME_NAMES = ['FOUNDRY', 'ARCHIVE', 'THE CORE'];
-export const BIOME_LIGHT: Record<number, { key: number; fill: number; fog: number; ambient: number; emissive: number }> = {
+export const BIOME_NAMES = ['FOUNDRY', 'ARCHIVE', 'THE CORE', 'THE NURSERY', 'THE CANOPY', 'THE FRONT', 'THE MIRROR'];
+export type BiomeLight = { key: number; fill: number; fog: number; ambient: number; emissive: number };
+export const BIOME_LIGHT: Record<number, BiomeLight> = {
   0: { key: 0xff8a3a, fill: 0xffb070, fog: 0x1a0d07, ambient: 0x5a3a2a, emissive: 0xff6a1a },
   1: { key: 0x5aa8ff, fill: 0x9fd0ff, fog: 0x060c16, ambient: 0x2a3a5a, emissive: 0x3aa0ff },
   2: { key: 0xff2a3a, fill: 0xff7070, fog: 0x160406, ambient: 0x5a2228, emissive: 0xff1a3a },
-  3: { key: 0xfff1d6, fill: 0xd8e4ff, fog: 0x0b0b0c, ambient: 0x606060, emissive: 0xfff0d0 }, // hub
+  3: { key: 0xb8ffd0, fill: 0xe8fff0, fog: 0x0a1510, ambient: 0x4a6a58, emissive: 0x6dff9a },
+  4: { key: 0x9aff6a, fill: 0xffe9a0, fog: 0x0a1a0a, ambient: 0x3a5a2a, emissive: 0x3affc8 },
+  5: { key: 0xff9a40, fill: 0xbfb0a0, fog: 0x1a1612, ambient: 0x5a5048, emissive: 0xff7a20 },
+  6: { key: 0xe8ffff, fill: 0x80ffff, fog: 0x050808, ambient: 0x6a7a7a, emissive: 0x6affff },
 };
+export const HUB_LIGHT: BiomeLight = { key: 0xfff1d6, fill: 0xd8e4ff, fog: 0x0b0b0c, ambient: 0x606060, emissive: 0xfff0d0 };
+export function lightFor(kind: RoomKind, biome: number): BiomeLight { return kind === 'hub' ? HUB_LIGHT : BIOME_LIGHT[biome] ?? BIOME_LIGHT[0]; }
 
+/** Biomes run 0..6 once, then the Endless cycles them again. */
 export function biomeOf(index: number): BiomeId {
-  return Math.min(2, Math.floor(index / 5)) as BiomeId;
+  const b = Math.floor(index / C.ROOMS_PER_BIOME);
+  return (b < C.BIOMES ? b : (b - C.BIOMES) % C.BIOMES) as BiomeId;
 }
 
 export function isBossIndex(index: number): boolean {
   return index % 5 === 4;
 }
 
+/** 0 inside the main descent; grows by one per full cycle of the Endless. */
+export function cycleOf(index: number): number {
+  return Math.max(0, Math.floor(index / (C.ROOMS_PER_BIOME * C.BIOMES)));
+}
+
+export const MUTATORS: Mutator[] = ['darkness', 'overclock', 'lowgrav', 'bloodmoon', 'silence', 'swarm'];
+export const MUTATOR_NAME: Record<Mutator, string> = { darkness: 'LIGHTS OUT', overclock: 'OVERCLOCK', lowgrav: 'LOW GRAVITY', bloodmoon: 'BLOOD MOON', silence: 'SILENCE', swarm: 'SWARM' };
+
 // ───────────────────────────── door planning ─────────────────────────────
 
-export interface DoorPlan { kind: DoorKind; nextKind: RoomKind }
+export interface DoorPlan { kind: DoorKind; nextKind: RoomKind; mutator?: Mutator }
 
 /** The exits a room offers. Deterministic per (run seed, room desc). */
-export function planDoors(desc: RoomDesc, totalRooms: number): DoorPlan[] {
+export function planDoors(desc: RoomDesc, _totalRooms = 0): DoorPlan[] {
   const rng = new Rng(mixSeed(desc.seed, 0xd00d));
   const next = desc.index + 1;
-  if (next >= totalRooms) return []; // final boss: no exits
   if (isBossIndex(next)) return [{ kind: 'standard', nextKind: 'boss' }];
-  if (desc.kind === 'boss') return [{ kind: 'standard', nextKind: 'combat' }];
+  if (desc.kind === 'boss') {
+    // past THE CORE every Warden offers the choice: walk out, or go deeper
+    if (next >= C.EXTRACT_FROM) return [{ kind: 'extract', nextKind: 'hub' }, { kind: 'elite', nextKind: 'combat', mutator: next > C.FINAL_ROOM && rng.chance(0.5) ? rng.pick(MUTATORS) : undefined }];
+    return [{ kind: 'standard', nextKind: 'combat' }];
+  }
   const count = desc.kind === 'gauntlet' ? 2 : desc.index === 0 ? 2 : rng.int(2, 3);
-  const kinds: DoorKind[] = ['standard', 'elite', 'unknown', 'corrupted'];
-  const weights = [50, 24, 15, desc.kind === 'anomaly' ? 0 : 14];
+  const kinds: DoorKind[] = ['standard', 'elite', 'unknown', 'corrupted', 'shop', 'sanctuary', 'trial'];
+  const rest = desc.kind === 'shop' || desc.kind === 'sanctuary';
+  const weights = [42, 22, 13, desc.kind === 'anomaly' ? 0 : 12, desc.index >= 2 && !rest ? 10 : 0, desc.index >= 3 && !rest ? 7 : 0, desc.index >= 4 ? 7 : 0];
   const plans: DoorPlan[] = [];
   const used = new Set<DoorKind>();
   for (let i = 0; i < count; i++) {
     let k: DoorKind = 'standard';
-    for (let tries = 0; tries < 8; tries++) {
+    for (let tries = 0; tries < 10; tries++) {
       k = rng.weighted(kinds, weights);
       if (!used.has(k)) break;
     }
-    if (i === 0 && !used.has('standard') && rng.chance(0.6)) k = 'standard';
+    if (i === 0 && !used.has('standard') && rng.chance(0.55)) k = 'standard';
     used.add(k);
     let nk: RoomKind;
     if (k === 'standard') nk = rng.weighted<RoomKind>(['combat', 'arena', 'gauntlet'], [60, 20, 20]);
     else if (k === 'elite') nk = rng.weighted<RoomKind>(['combat', 'arena'], [70, 30]);
     else if (k === 'unknown') nk = rng.weighted<RoomKind>(['arena', 'gauntlet', 'combat'], [40, 30, 30]);
+    else if (k === 'shop') nk = 'shop';
+    else if (k === 'sanctuary') nk = 'sanctuary';
+    else if (k === 'trial') nk = 'trial';
     else nk = 'anomaly';
-    plans.push({ kind: k, nextKind: nk });
+    let mutator: Mutator | undefined;
+    const combatish = nk === 'combat' || nk === 'arena' || nk === 'gauntlet' || nk === 'trial';
+    if (nk === 'trial') mutator = rng.pick<Mutator>(['bloodmoon', 'overclock', 'darkness', 'swarm']);
+    else if (combatish && desc.index >= 2 && rng.chance(Math.min(0.5, 0.16 + desc.index * 0.012))) mutator = rng.pick(MUTATORS);
+    plans.push({ kind: k, nextKind: nk, mutator });
   }
   return plans;
 }
@@ -202,6 +231,7 @@ function buildShell(b: Builder, w: number, d: number, h: number, doors: WallDoor
         slot: dd.slot, side, x, z, nx, nz,
         kind: dd.plan ? dd.plan.kind : 'standard',
         nextKind: dd.plan ? dd.plan.nextKind : 'combat',
+        mutator: dd.plan?.mutator,
         panel, entry: dd.entry,
       });
       b.clear(x + nx * 3, z + nz * 3, 2.6, 2.6);
@@ -311,6 +341,19 @@ function interiorCombat(b: Builder, w: number, d: number, h: number, biome: Biom
   void biome;
 }
 
+/** THE CANOPY: trunks and roots instead of pillars. */
+function jungle(b: Builder, w: number, d: number, h: number) {
+  const rng = b.rng;
+  const hw = w / 2, hd = d / 2;
+  const n = Math.round((w * d) / 45);
+  for (let i = 0; i < n; i++) {
+    const x = rng.range(-hw + 2, hw - 2), z = rng.range(-hd + 2, hd - 7);
+    const r = rng.range(0.35, 0.8);
+    b.tryPlace(x, z, r, r, 0, h, 'pillar', 1, 1.6);
+    if (rng.chance(0.4)) b.tryPlace(x + rng.range(-1.6, 1.6), z + rng.range(-1.6, 1.6), rng.range(0.5, 1.2), rng.range(0.3, 0.6), 0, rng.range(0.4, 0.9), 'crate', 0, 0.2);
+  }
+}
+
 function lightsFor(rng: Rng, biome: number, w: number, d: number, h: number, count: number): Light[] {
   const L = BIOME_LIGHT[biome];
   const lights: Light[] = [];
@@ -333,7 +376,7 @@ function lightsFor(rng: Rng, biome: number, w: number, d: number, h: number, cou
 export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
   const rng = new Rng(mixSeed(desc.seed, 0x600d));
   const b = new Builder(rng);
-  const biome = desc.kind === 'hub' ? 3 : desc.biome;
+  const biome = desc.biome;
   let w = 30, d = 30, h = 7;
   switch (desc.kind) {
     case 'combat': w = rng.int(26, 38); d = rng.int(28, 40); h = rng.pick([6, 7, 8]); break;
@@ -342,6 +385,9 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
     case 'anomaly': w = rng.int(18, 24); d = rng.int(20, 26); h = 9; break;
     case 'boss': w = 50; d = 50; h = 16; break;
     case 'hub': w = 10; d = 12; h = 4.2; break;
+    case 'shop': w = 18; d = 18; h = 6; break;
+    case 'sanctuary': w = 14; d = 16; h = 8; break;
+    case 'trial': w = 30; d = 30; h = 9; break;
   }
   if (desc.reveal) { w = 50; d = 50; h = 16; }
   const plans = desc.kind === 'hub' ? [{ kind: 'standard' as DoorKind, nextKind: 'combat' as RoomKind }] : planDoors(desc, totalRooms);
@@ -352,7 +398,9 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
   // keep clear: player spawn zone near the entry, pedestal zone
   b.clear(0, hd - 3.5, 4.5, 3.5);
   const pedZ = desc.kind === 'gauntlet' ? -hd + 9 : desc.kind === 'boss' ? 0 : -1;
-  const pedestals = [{ x: -2.6, z: pedZ }, { x: 2.6, z: pedZ }, { x: 0, z: pedZ - 3.2 }];
+  const pedestals = desc.kind === 'shop'
+    ? [{ x: -5, z: -1 }, { x: -1.7, z: -1 }, { x: 1.7, z: -1 }, { x: 5, z: -1 }, { x: -3.3, z: 2.4 }, { x: 3.3, z: 2.4 }]
+    : [{ x: -2.6, z: pedZ }, { x: 2.6, z: pedZ }, { x: 0, z: pedZ - 3.2 }];
   if (desc.kind !== 'hub') b.clear(0, pedZ - 1.5, 4.5, 3.4);
 
   buildShell(b, w, d, h, wallDoors, doorSlots);
@@ -361,7 +409,8 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
   const decor: Decor[] = [];
   const enemySpawns: Vec3[] = [];
 
-  if (desc.kind === 'combat') {
+  if (desc.kind === 'combat' || desc.kind === 'trial') {
+    if (desc.biome === 4) jungle(b, w, d, h);
     interiorCombat(b, w, d, h, desc.biome);
   } else if (desc.kind === 'arena') {
     // stepped circle (pixel circle) — reads as a pit
@@ -424,6 +473,14 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
     for (const [sx, sz] of [[-1, 0], [1, 0], [0, -1]]) b.tryPlace(sx * 17, sz * 17, 2.5, 2.5, 0, 1.0, 'platform', 0, 0);
     for (let i = 0; i < 6; i++) b.tryPlace(rng.range(-18, 18), rng.range(-18, 14), 0.8, 0.8, 0, 1.3, 'crate', 0);
     if (desc.reveal) decor.push({ kind: 'terminal', x: 0, y: 2.2, z: hd - 0.05, nx: 0, nz: -1, v: 1 });
+  } else if (desc.kind === 'shop') {
+    decor.push({ kind: 'vendor', x: 0, y: 0, z: -hd + 2.6, nx: 0, nz: 1, v: 0 });
+    b.add(-3, 0, -hd + 1.2, 3, 0.9, -hd + 1.9, 'crate', 0); // the counter
+    decor.push({ kind: 'text', x: 0, y: 4.2, z: -hd + 1.5, nx: 0, nz: 1, v: 1 });
+  } else if (desc.kind === 'sanctuary') {
+    decor.push({ kind: 'shrine', x: 0, y: 0, z: -2, nx: 0, nz: 1, v: 0 });
+    decor.push({ kind: 'terminal', x: -hw + 0.05, y: 1.7, z: 1, nx: 1, nz: 0, v: 2 });
+    for (let i = 0; i < 4; i++) b.add(-hw + 1 + i * 0.01, 0, -hd + 2 + i * 3, -hw + 1.6, 0.5, -hd + 3.2 + i * 3, 'crate', 0);
   } else if (desc.kind === 'hub') {
     decor.push({ kind: 'terminal', x: hw - 0.05, y: 1.6, z: -1, nx: -1, nz: 0, v: 0 });
     decor.push({ kind: 'tally', x: -hw + 0.04, y: 1.9, z: 0, nx: 1, nz: 0, v: 0 });
@@ -434,8 +491,9 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
   }
 
   // decorative wall props
-  if (desc.kind === 'combat' || desc.kind === 'arena' || desc.kind === 'gauntlet') {
-    const kindsByBiome: Decor['kind'][] = desc.biome === 0 ? ['pipe', 'vat'] : desc.biome === 1 ? ['server', 'cable'] : ['vat', 'cable'];
+  if (desc.kind === 'combat' || desc.kind === 'arena' || desc.kind === 'gauntlet' || desc.kind === 'trial') {
+    const DECOR: Decor['kind'][][] = [['pipe', 'vat'], ['server', 'cable'], ['vat', 'cable'], ['vat', 'vat', 'cable'], ['foliage', 'foliage'], ['wreck', 'pipe'], ['server', 'cable']];
+    const kindsByBiome = DECOR[desc.biome] ?? DECOR[0];
     const n = rng.int(3, 6);
     for (let i = 0; i < n; i++) {
       const side = rng.int(0, 1);
@@ -462,16 +520,29 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
     { x: -1.2, y: 0, z: hd - 4.5 }, { x: 1.2, y: 0, z: hd - 4.5 },
   ];
 
+  // the jungle: foliage everywhere there is floor
+  if (desc.biome === 4 && desc.kind !== 'hub' && desc.kind !== 'shop' && desc.kind !== 'sanctuary') {
+    for (let i = 0; i < Math.round((w * d) / 14); i++) {
+      const x = rng.range(-hw + 0.6, hw - 0.6), z = rng.range(-hd + 0.6, hd - 0.6);
+      if (Math.abs(x) < 3 && z > hd - 7) continue;
+      decor.push({ kind: 'foliage', x, y: 0, z, nx: 0, nz: 1, v: rng.int(0, 5) });
+    }
+  }
+
   const lightCount = desc.kind === 'hub' ? 1 : desc.kind === 'gauntlet' ? 5 : desc.kind === 'boss' ? 6 : 4;
   const lights = lightsFor(rng, biome, w, d, h, lightCount);
   if (desc.kind === 'hub') { lights[0].x = 0; lights[0].z = 0; lights[0].intensity = 14; lights[0].range = 14; lights[0].y = h - 0.4; }
   if (desc.kind === 'anomaly') for (const l of lights) { l.color = 0x7dff7a; l.intensity *= 0.7; }
+  if (desc.kind === 'sanctuary') for (const l of lights) { l.color = 0xfff0c8; l.intensity *= 0.8; }
+  if (desc.kind === 'shop') for (const l of lights) { l.color = 0xffd27a; }
+  if (desc.mutator === 'darkness') for (const l of lights) l.intensity *= 0.18;
+  if (desc.mutator === 'bloodmoon') for (const l of lights) l.color = 0xff1a10;
 
   return {
     desc, w, d, h, boxes: b.boxes, doors: doorSlots.sort((a, c) => a.slot - c.slot), playerSpawns, enemySpawns,
     pedestals, lights, decor, nav,
     ambient: desc.kind === 'anomaly' ? 0.35 : 0.5,
-    fog: desc.kind === 'hub' ? 0.03 : desc.kind === 'anomaly' ? 0.06 : 0.035,
+    fog: desc.kind === 'hub' ? 0.03 : desc.kind === 'anomaly' ? 0.06 : desc.mutator === 'darkness' ? 0.075 : desc.biome === 4 ? 0.05 : desc.biome === 5 ? 0.045 : 0.035,
     bounds,
   };
 }

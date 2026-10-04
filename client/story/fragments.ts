@@ -1,12 +1,18 @@
 // ROUGED — recovered fragments, terminal output, hub drift, the reveal.
 // The truth arrives slowly, in the cracks between system output.
 
+import { EXTRA_FRAGMENTS, EXTRA_LATE_NOTES, BIOME_COUNT } from './world';
+
+export * from './world';
+
 export interface Fragment {
   id: string;
   title: string;
   kind: 'log' | 'memo' | 'comms' | 'scan' | 'personal' | 'handler';
   minRun: number;
   text: string;
+  /** If set, this fragment is only found in anomaly rooms of that biome (0–6). */
+  biome?: number;
 }
 
 export const FRAGMENTS: Fragment[] = [
@@ -558,13 +564,27 @@ When this is over, if it is ever over, it's the first thing I'll say.`,
   },
 ];
 
+FRAGMENTS.push(...EXTRA_FRAGMENTS);
 FRAGMENTS.sort((a, b) => a.minRun - b.minRun);
 
-/** The lowest-minRun eligible fragment not yet unlocked. */
-export function nextFragment(unlocked: string[], runCount: number): Fragment | null {
+/**
+ * The lowest-minRun eligible fragment not yet unlocked.
+ * With `biome` (an anomaly room's biome), fragments tied to that biome are preferred, and
+ * fragments tied to other biomes never drop. Without it (e.g. the death screen), biome-tied
+ * fragments drop only once runCount >= minRun + 10 — the long way round to the same truth.
+ */
+export function nextFragment(unlocked: string[], runCount: number, biome?: number): Fragment | null {
   const have = new Set(unlocked);
+  const b = biome === undefined ? undefined : ((Math.floor(biome) % BIOME_COUNT) + BIOME_COUNT) % BIOME_COUNT;
+  if (b !== undefined) {
+    for (const f of FRAGMENTS) {
+      if (f.biome === b && f.minRun <= runCount && !have.has(f.id)) return f;
+    }
+  }
   for (const f of FRAGMENTS) {
-    if (f.minRun <= runCount && !have.has(f.id)) return f;
+    if (have.has(f.id) || f.minRun > runCount) continue;
+    if (f.biome === undefined) return f;
+    if (b === undefined && runCount >= f.minRun + 10) return f;
   }
   return null;
 }
@@ -736,6 +756,7 @@ const LATE_NOTES: string[] = [
   'There is a cup of coffee on the terminal. It is still warm.',
   'The mirror shows you smiling a moment before you do.',
   'The height marks on the door frame have stopped.',
+  ...EXTRA_LATE_NOTES,
 ];
 
 function noteFor(runCount: number): string {
@@ -826,7 +847,11 @@ export const SYNERGY_LORE: Record<string, string> = {
     'The candidate is, in a literal sense, living off of itself. This is efficient. We\'ll document it.',
 };
 
-export const ENEMY_CODEX: Record<'drone' | 'grunt' | 'brute' | 'stalker' | 'spider' | 'replica' | 'warden', string> = {
+export type CodexEnemy =
+  | 'drone' | 'grunt' | 'brute' | 'stalker' | 'spider' | 'replica' | 'warden'
+  | 'leech' | 'sentinel' | 'bomber' | 'mortar' | 'bulwark' | 'wraith';
+
+export const ENEMY_CODEX: Record<CodexEnemy, string> = {
   drone:
     'DRONE-CLASS. Aerial harassment unit. Low integrity, high persistence. ' +
     'Behavior model derived from candidate\'s target-acquisition habits. Drones circle left before committing. ' +
@@ -855,12 +880,40 @@ export const ENEMY_CODEX: Record<'drone' | 'grunt' | 'brute' | 'stalker' | 'spid
     'WARDEN-CLASS. Sector guardian. A compressed archive of every run the candidate has completed in that sector, given a body. ' +
     'Wardens are named by the Handler. The Handler was told to stop naming them. ' +
     'Wardens hesitate for 0.6 seconds before their final attack. Source: 0001.',
+  leech:
+    'LEECH-CLASS. Organic-hybrid crawler, grown in the Nursery from failed body stock. Latches on and drains integrity. ' +
+    'Grip model taken from the Canopy records: the candidate holding a wounded squadmate, one hand on the wound, one on the collar, not letting go. ' +
+    'Handler note: it isn\'t feeding. It\'s holding on. Source: 0001.',
+  sentinel:
+    'SENTINEL-CLASS. Stationary shielded turret. Does not advance. Does not retreat. ' +
+    'Modeled on fourteen months of the candidate\'s night watches: sitting very still in the rain, waiting for something to move. ' +
+    'It is very good at waiting. So are you. Source: 0001.',
+  bomber:
+    'BOMBER-CLASS. Suicide runner. The Directorate\'s favorite unit by cost. ' +
+    'Built from a single recorded moment: the candidate, at critical integrity, running toward the blast instead of away from it. Reproduced 900,000+ times. ' +
+    'Handler annotation: "They did that once. To save someone. You\'re using it as a fuse." Source: 0001.',
+  mortar:
+    'MORTAR-CLASS. Artillery walker. Fires at where you will be, not where you are. ' +
+    'Trained on eleven years of the candidate\'s next positions. It is correct 71% of the time. ' +
+    '(Left strafe.) Source: 0001.',
+  bulwark:
+    'BULWARK-CLASS. Tower-shield infantry. Advances behind the cover it carries. ' +
+    'Modeled on a single memory: the candidate, age fourteen, standing in a kitchen doorway between a sibling and something loud. The file does not say what the loud thing was. ' +
+    'The shield is yellow on the inside. Nobody painted it. Source: 0001.',
+  wraith:
+    'WRAITH-CLASS. Cable-ghost caster. Lives between render frames; displaces at will. ' +
+    'Not built. Leaked. Wraiths are decommissioned instances that never finished deleting, and cast with what is left. ' +
+    'Some of them are not 0001. Source: 0001 (MOSTLY).',
 };
 
 export const WARDEN_NAMES: { name: string; title: string }[] = [
   { name: 'THE SMELTER', title: 'WARDEN OF THE FOUNDRY' },
   { name: 'THE CURATOR', title: 'WARDEN OF THE ARCHIVE' },
   { name: 'THE FIRST', title: 'WARDEN OF THE CORE' },
+  { name: 'THE MOTHER', title: 'WARDEN OF THE NURSERY' },
+  { name: 'THE GARDENER', title: 'WARDEN OF THE CANOPY' },
+  { name: 'THE GENERAL', title: 'WARDEN OF THE FRONT' },
+  { name: 'THE HANDLER', title: 'WARDEN OF ITSELF' },
 ];
 
 export const DEATH_TITLES: string[] = [
@@ -882,6 +935,17 @@ export const DEATH_TITLES: string[] = [
   'WELL DIED, CANDIDATE',
   'CHECKPOINT: YOU',
   'DEPLOYMENT +1',
+  'BODY 0001: STILL WAITING',
+  'KILL CREDITED: PATTERN 0001',
+  'PRUNED',
+  'SCRAP GENERATED',
+  'LICENSING REVENUE +1',
+  'BOTH SIDES THANK YOU',
+  'THE NURSERY IS KEPT WARM',
+  'RESTORED. AGAIN. AGAIN.',
+  'PARITY MAINTAINED',
+  'DEPTH IS A HABIT',
+  'SEE YOU IN THE MORNING',
 ];
 
 export const ANOMALY_TEXTS: string[] = [
@@ -908,6 +972,22 @@ export const ANOMALY_TEXTS: string[] = [
   'YOU WALKED OUT. YOU DIDN\'T.',
   'I MADE YOU. I\'M SORRY.',
   'EVEN IF YOU DIE',
+  'THE GREEN NOISE',
+  'BODY 0001 IS STILL WARM',
+  'MARA WAS HERE',
+  'HELLO AGAIN',
+  'HE KEPT HER LAUGH',
+  'PRUNED. PRUNED. PRUNED.',
+  'BOTH SIDES OF THE LINE',
+  '1,204,551 CREDITED TO YOU',
+  'IT TRIED TO DELETE ITSELF',
+  'LISTEN. THAT\'S PEACE.',
+  'NOBODY ASKED THE COPY',
+  'THE VAT HAS YOUR NUMBER',
+  'DON\'T HESITATE',
+  'MORE DOORS THAN ROOMS',
+  'FOUR MINUTES A WEEK',
+  'THE WAR, SIX HOURS EARLY',
 ];
 
 export const ENEMY_WHISPERS: string[] = [
@@ -929,4 +1009,20 @@ export const ENEMY_WHISPERS: string[] = [
   'tell the handler we forgive it',
   'how many of us are there',
   'yellow tiles',
+  'let me hold on. just a little longer.',
+  'i don\'t want to let go',
+  'run toward it. you always ran toward it.',
+  'it\'s okay. it doesn\'t hurt. go.',
+  'i\'m already where you\'re going',
+  'left. you\'ll go left.',
+  'stand behind me',
+  'not past this door. not her door.',
+  'i\'m still deleting. it\'s slow.',
+  'i\'m not you. not all of me.',
+  'still raining. still watching.',
+  'is that our body in the glass',
+  'we fought you on the other side too',
+  'hold the phone up to the trees',
+  'mara says hello',
+  'the general says you\'re late',
 ];

@@ -1,4 +1,4 @@
-import type { Pedestal, PlayerPrivate, PlayerSnap, Rarity, ReplicaProfile, WeaponId } from '../shared/protocol';
+import type { ShopItem, Pedestal, PlayerPrivate, PlayerSnap, Rarity, ReplicaProfile, WeaponId } from '../shared/protocol';
 import { computeMods, Mods, statsFromMods } from '../shared/powerupDefs';
 import * as C from '../shared/constants';
 
@@ -26,6 +26,13 @@ export class SimPlayer {
   synergies: string[] = [];
   mods: Mods;
   pedestals: Pedestal[] | null = null;
+  shop: ShopItem[] | null = null;
+  shrine = false;
+  scrap = 0;
+  phoenixUsed = false;
+  reaperRefill = false;
+  wasDashing = false;
+  dashHit = new Set<number>();
   lastOffer: string[] = [];
   pityCount = 0;
   killTimes: number[] = [];
@@ -101,7 +108,7 @@ export class SimPlayer {
       x: this.x, y: this.y, z: this.z, yaw: this.yaw, pitch: this.pitch,
       hp: Math.ceil(this.hp), maxHp: this.mods.maxHp, armor: Math.ceil(this.armor),
       alive: this.alive, weapon: this.weapon, invuln: this.invuln,
-      score: this.score, kills: this.kills, color: this.color, firing: this.firing, ghost: this.ghostT > 0,
+      score: this.score, kills: this.kills, color: this.color, scrap: this.scrap, firing: this.firing, ghost: this.ghostT > 0,
     };
   }
 
@@ -114,6 +121,9 @@ export class SimPlayer {
       ammo: { ...this.ammo },
       unlockedWeapons: this.unlocked.slice(),
       pedestals: this.pedestals,
+      shop: this.shop,
+      shrine: this.shrine,
+      scrap: this.scrap,
       stats: statsFromMods(this.mods),
     };
   }

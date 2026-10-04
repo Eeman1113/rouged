@@ -41,6 +41,9 @@ export interface Meta {
   replica: ReplicaProfile | null;
   difficulty: Difficulty;
   revealSeen: boolean;
+  trueEndingSeen: boolean;
+  extractions: number;
+  deepest: number;
   settings: Settings;
   lastSeed: string;
 }
@@ -50,7 +53,7 @@ const KEY = 'rouged.meta.v1';
 export function defaultMeta(): Meta {
   return {
     v: 1, name: 'CANDIDATE', xp: 0, runCount: 0, deaths: 0, victories: 0, cores: 0, fragments: [], bestScore: 0, bestRooms: 0, bestCombo: 1,
-    totalKills: 0, synergies: [], enemiesSeen: [], legendariesSeen: 0, replica: null, difficulty: 'normal', revealSeen: false, lastSeed: '',
+    totalKills: 0, synergies: [], enemiesSeen: [], legendariesSeen: 0, replica: null, difficulty: 'normal', revealSeen: false, trueEndingSeen: false, extractions: 0, deepest: 0, lastSeed: '',
     settings: { sensitivity: 1, invertY: false, master: 0.9, music: 0.7, sfx: 0.9, voice: true, fov: 95, shake: 1, quality: 'high', padSens: 1, aimAssist: 0.6, rumble: 1, triggers: true, gyro: 'l2', gyroSens: 1.2, serverUrl: '' },
   };
 }
@@ -82,10 +85,13 @@ export interface RunResult {
 
 export function applyRun(m: Meta, s: RunSummary): RunResult {
   const prevLevel = levelFromXp(m.xp).level;
-  const xp = Math.max(15, s.xp + s.rooms * 5 + (s.victory ? 600 : 0));
+  const xp = Math.max(15, s.xp + s.rooms * 5 + (s.extracted ? 300 + (s.depth ?? 0) * 25 : 0) + (s.trueEnding ? 2000 : 0));
   m.xp += xp;
   m.runCount++;
   if (s.victory) m.victories++; else m.deaths++;
+  if (s.extracted) m.extractions++;
+  if (s.trueEnding) m.trueEndingSeen = true;
+  m.deepest = Math.max(m.deepest, s.depth ?? 0);
   m.cores += s.bosses;
   m.totalKills += s.kills;
   const pb = s.score > m.bestScore;

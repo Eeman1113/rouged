@@ -2,11 +2,11 @@
 
 import * as THREE from 'three';
 import type { Box, RoomGeo, Decor } from '../../shared/mapData';
-import { BIOME_LIGHT } from '../../shared/mapData';
+import { lightFor, MUTATOR_NAME } from '../../shared/mapData';
 import type { DoorKind, RoomKind } from '../../shared/protocol';
 import {
   getWallTexture, getFloorTexture, getCeilingTexture, getCrateTexture, getDoorTexture, getTerminalTexture,
-  getHubTexture, getMirrorTexture, getBodySprite, Biome,
+  getHubTexture, getMirrorTexture, getBodySprite, Biome, getFoliageSprite, getVendorSprite, getShrineSprite,
 } from './sprites';
 import { tex, textCanvas } from './tex';
 
@@ -25,9 +25,13 @@ export interface DoorView {
   light: THREE.PointLight;
 }
 
-const DOOR_COLORS: Record<DoorKind, number> = { standard: 0x3b8cff, elite: 0xff2a2a, unknown: 0xffc83b, corrupted: 0x6dff5a };
-const DOOR_LABEL: Record<DoorKind, string> = { standard: 'STANDARD', elite: 'ELITE', unknown: '???', corrupted: 'C0RRUPT3D' };
-const KIND_LABEL: Record<RoomKind, string> = { combat: 'COMBAT', arena: 'ARENA', gauntlet: 'GAUNTLET', anomaly: 'ANOMALY', boss: '!! WARDEN !!', hub: 'HUB' };
+const DOOR_COLORS: Record<DoorKind, number> = { standard: 0x3b8cff, elite: 0xff2a2a, unknown: 0xffc83b, corrupted: 0x6dff5a, extract: 0xffffff, shop: 0x2affd0, sanctuary: 0xfff0b0, trial: 0xb44cff };
+const DOOR_LABEL: Record<DoorKind, string> = { standard: 'STANDARD', elite: 'ELITE', unknown: '???', corrupted: 'C0RRUPT3D', extract: '>> EXTRACT <<', shop: 'THE BROKER', sanctuary: 'SANCTUARY', trial: 'TRIAL' };
+const KIND_LABEL: Record<RoomKind, string> = { combat: 'COMBAT', arena: 'ARENA', gauntlet: 'GAUNTLET', anomaly: 'ANOMALY', boss: '!! WARDEN !!', hub: 'WAKE UP', shop: 'TRADE SCRAP', sanctuary: 'REST', trial: 'LEGENDARY REWARD' };
+/** door art only exists for four kinds: map the rest */
+const DOOR_TEX: Record<DoorKind, 'standard' | 'elite' | 'unknown' | 'corrupted'> = { standard: 'standard', elite: 'elite', unknown: 'unknown', corrupted: 'corrupted', extract: 'corrupted', shop: 'unknown', sanctuary: 'standard', trial: 'elite' };
+
+interface Weather { points: THREE.Points; vel: Float32Array; kind: number; box: { x: number; z: number; h: number } }
 
 function pushBoxGeometry(b: Box, pos: number[], uv: number[], nrm: number[], idx: number[], skipBottom = true, uvScale = 1) {
   const faces: { n: [number, number, number]; v: [number, number, number][]; u: (p: [number, number, number]) => [number, number] }[] = [
@@ -78,6 +82,10 @@ export class MapView {
   geo: RoomGeo | null = null;
   emissiveColor = new THREE.Color();
   time = 0;
+  vendor: THREE.Sprite | null = null;
+  shrine: THREE.Sprite | null = null;
+  shrineLight: THREE.PointLight | null = null;
+  weather: Weather | null = null;
 
   constructor(private scene: THREE.Scene) {
     scene.add(this.group);
@@ -100,6 +108,7 @@ export class MapView {
     this.group = new THREE.Group();
     this.scene.add(this.group);
     this.doors = [];
+    this.vendor = null; this.shrine = null; this.shrineLight = null; this.weather = null;
     this.terminals = [];
     this.mirrors = [];
     this.floaters = [];
@@ -112,7 +121,7 @@ export class MapView {
     this.geo = geo;
     const hub = geo.desc.kind === 'hub';
     const biome = (hub ? 0 : geo.desc.biome) as Biome;
-    const L = BIOME_LIGHT[hub ? 3 : geo.desc.biome];
+    const L = lightFor(geo.desc.kind, geo.desc.biome);
     this.emissiveColor.setHex(L.emissive);
     this.flickerAmt = opts.flicker ?? (geo.desc.kind === 'anomaly' ? 0.4 : 0.05);
     const anomaly = geo.desc.kind === 'anomaly';
@@ -182,7 +191,7 @@ export class MapView {
       const kind = ds.entry ? 'standard' : ds.kind;
       const p = ds.panel;
       const w = Math.max(p.x1 - p.x0, p.z1 - p.z0), hgt = p.y1 - p.y0;
-      const mat = new THREE.MeshLambertMaterial({ map: tex(getDoorTexture(kind, false)), color: ds.entry ? 0x777777 : 0xffffff });
+      const mat = new THREE.MeshLambertMaterial({ map: tex(getDoorTexture(DOOR_TEX[kind], false)), color: ds.entry ? 0x777777 : 0xffffff });
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(p.x1 - p.x0, hgt, p.z1 - p.z0), mat);
       mesh.position.set((p.x0 + p.x1) / 2, hgt / 2, (p.z0 + p.z1) / 2);
       this.group.add(mesh);
@@ -190,7 +199,7 @@ export class MapView {
       const glow = new THREE.Mesh(new THREE.BoxGeometry(ds.nx ? 0.1 : w, 0.22, ds.nz ? 0.1 : w), new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(ds.entry ? 1 : 3.2) }));
       glow.position.set(ds.x + ds.nx * 0.05, p.y1 + 0.35, ds.z + ds.nz * 0.05);
       this.group.add(glow);
-      const nextLbl = ds.entry ? '' : `${DOOR_LABEL[kind]}\n${geo.desc.kind === 'hub' ? 'DEPLOY' : KIND_LABEL[ds.nextKind]}`;
+      const nextLbl = ds.entry ? '' : `${DOOR_LABEL[kind]}\n${geo.desc.kind === 'hub' ? 'DEPLOY' : kind === 'extract' ? 'END THE RUN' : KIND_LABEL[ds.nextKind]}${ds.mutator ? '\n⚠ ' + MUTATOR_NAME[ds.mutator] : ''}${geo.desc.kind === 'boss' && kind !== 'extract' && geo.desc.index >= 14 ? '\nGO DEEPER' : ''}`;
       const lc = textCanvas(nextLbl, '#' + new THREE.Color(color).getHexString(), 22, "'VT323', monospace", '#000');
       const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(lc), transparent: true, depthWrite: false, fog: true }));
       const s = 0.035;
@@ -207,6 +216,7 @@ export class MapView {
 
     // decor
     for (const d of geo.decor) this.addDecor(d, geo, opts, biome);
+    if (!hub) this.addWeather(geo);
     if (anomaly && opts.corpses) {
       // rooms full of your own corpses
       for (const d of geo.decor.filter((x) => x.kind === 'corpse')) this.addCorpse(d.x, d.z, (d.v ?? 0) % 4);
@@ -271,6 +281,12 @@ export class MapView {
         break;
       }
       case 'text': {
+        if (d.v === 1) {
+          const c = textCanvas('THE BROKER\nscrap for salvation', '#2affd0', 24, "'VT323', monospace", '#000');
+          const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(c), transparent: true, color: new THREE.Color(2, 2, 2), depthWrite: false }));
+          sp.scale.set(c.width * 0.03, c.height * 0.03, 1); sp.position.set(d.x, d.y, d.z); this.group.add(sp);
+          break;
+        }
         if (!opts.whisper) break;
         const c = textCanvas(opts.whisper, '#7dff7a', 26, "'VT323', monospace", '#2f2');
         const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(c), transparent: true, color: new THREE.Color(1.8, 1.8, 1.8), depthWrite: false }));
@@ -278,6 +294,53 @@ export class MapView {
         s.position.set(d.x, d.y, d.z);
         this.group.add(s);
         this.floaters.push({ obj: s, base: d.y, phase: d.x });
+        break;
+      }
+      case 'foliage': {
+        const c = getFoliageSprite(d.v ?? 0);
+        const hgt = c.height / 22;
+        const mat = new THREE.SpriteMaterial({ map: tex(c), transparent: true, alphaTest: 0.5, color: (d.v ?? 0) === 4 ? new THREE.Color(1.8, 1.8, 1.8) : new THREE.Color(0.75, 0.85, 0.75) });
+        const sp = new THREE.Sprite(mat);
+        const sc = 0.7 + ((d.x * 7.3 + d.z * 3.1) % 1 + 1) % 1 * 0.8;
+        sp.scale.set((c.width / 22) * sc, hgt * sc, 1);
+        sp.center.set(0.5, 0);
+        sp.position.set(d.x, (d.v ?? 0) === 2 ? geo.h - hgt * sc : 0, d.z);
+        if ((d.v ?? 0) === 2) sp.center.set(0.5, 0);
+        this.group.add(sp);
+        break;
+      }
+      case 'vendor': {
+        const c = getVendorSprite(0);
+        const mat = new THREE.SpriteMaterial({ map: tex(c), transparent: true, alphaTest: 0.5 });
+        const sp = new THREE.Sprite(mat);
+        sp.scale.set(c.width / 20, c.height / 20, 1);
+        sp.center.set(0.5, 0);
+        sp.position.set(d.x, 0, d.z);
+        this.group.add(sp);
+        this.vendor = sp;
+        const l = new THREE.PointLight(0xffc870, 6, 9, 1.4); l.position.set(d.x, 3, d.z + 1.5); this.group.add(l);
+        break;
+      }
+      case 'shrine': {
+        const c = getShrineSprite();
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(c), transparent: true, alphaTest: 0.4, color: new THREE.Color(1.6, 1.6, 1.6) }));
+        sp.scale.set(c.width / 16, c.height / 16, 1);
+        sp.center.set(0.5, 0);
+        sp.position.set(d.x, 0, d.z);
+        this.group.add(sp);
+        this.shrine = sp;
+        const l = new THREE.PointLight(0xfff0c0, 10, 10, 1.3); l.position.set(d.x, 2, d.z); this.group.add(l);
+        this.shrineLight = l;
+        break;
+      }
+      case 'wreck': {
+        const mat = new THREE.MeshLambertMaterial({ color: 0x4a4440 });
+        for (let i = 0; i < 4; i++) {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(0.6 + (i % 2) * 0.5, 0.3 + i * 0.15, 0.5), mat);
+          m.position.set(d.x + d.nx * (0.6 + i * 0.25), 0.2 + i * 0.12, d.z + (i - 1.5) * 0.45);
+          m.rotation.set(i * 0.4, i * 0.9, i * 0.3);
+          this.group.add(m);
+        }
         break;
       }
       case 'pipe': {
@@ -318,12 +381,43 @@ export class MapView {
     }
   }
 
+  /** Per-biome atmosphere: embers, dust, spores, bubbles, rain, ash, glitch motes. */
+  private addWeather(geo: RoomGeo) {
+    const kind = geo.desc.mutator === 'bloodmoon' ? 7 : geo.desc.biome;
+    const n = kind === 4 ? 900 : kind === 5 ? 500 : 260;
+    const pos = new Float32Array(n * 3), vel = new Float32Array(n * 3);
+    const W = geo.w + 4, D = geo.d + 4, H = geo.h;
+    for (let i = 0; i < n; i++) {
+      pos[i * 3] = (Math.random() - 0.5) * W; pos[i * 3 + 1] = Math.random() * H; pos[i * 3 + 2] = (Math.random() - 0.5) * D;
+      const r = Math.random();
+      switch (kind) {
+        case 0: vel.set([(r - 0.5) * 0.4, 0.6 + r * 0.8, (Math.random() - 0.5) * 0.4], i * 3); break; // embers rise
+        case 2: vel.set([(r - 0.5) * 0.3, 0.2 + r * 0.3, (Math.random() - 0.5) * 0.3], i * 3); break; // spores
+        case 3: vel.set([0, 0.3 + r * 0.6, 0], i * 3); break; // bubbles
+        case 4: vel.set([0.6, -14 - r * 6, 0.2], i * 3); break; // rain
+        case 5: vel.set([0.4 + r * 0.3, -0.6 - r * 0.6, 0.2], i * 3); break; // ash
+        case 7: vel.set([0, -0.3 - r * 0.3, 0], i * 3); break; // blood mist
+        default: vel.set([(r - 0.5) * 0.2, (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.2], i * 3); // dust / glitch
+      }
+    }
+    const COLORS = [0xff8a2a, 0x9fd0ff, 0xff4a6a, 0xb8ffd0, 0xbfe8ff, 0x8a8078, 0xc8ffff, 0xff2020];
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const col = new THREE.Color(COLORS[kind] ?? 0xffffff);
+    if (kind === 0 || kind === 6 || kind === 3) col.multiplyScalar(2.2);
+    const mat = new THREE.PointsMaterial({ color: col, size: kind === 4 ? 0.06 : kind === 6 ? 0.09 : 0.07, transparent: true, opacity: kind === 4 ? 0.55 : 0.8, depthWrite: false, blending: kind === 5 ? THREE.NormalBlending : THREE.AdditiveBlending });
+    const points = new THREE.Points(g, mat);
+    points.frustumCulled = false;
+    this.group.add(points);
+    this.weather = { points, vel, kind, box: { x: W, z: D, h: H } };
+  }
+
   setDoorOpen(slot: number, open: boolean) {
     const d = this.doors.find((x) => x.slot === slot);
     if (!d || d.open === open) return;
     d.open = open;
     d.label.visible = open;
-    (d.mesh.material as THREE.MeshLambertMaterial).map = tex(getDoorTexture(d.kind, open));
+    (d.mesh.material as THREE.MeshLambertMaterial).map = tex(getDoorTexture(DOOR_TEX[d.kind], open));
   }
 
   showDoorLabels(on: boolean) {
@@ -339,6 +433,21 @@ export class MapView {
       d.light.intensity = d.slot >= 0 ? (d.open ? 6 + Math.sin(this.time * 4) * 1.5 : 1.2) : 0;
       if (d.label.visible) d.label.position.y += Math.sin(this.time * 2 + d.slot) * 0.002;
     }
+    if (this.weather) {
+      const w = this.weather;
+      const a = w.points.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const arr = a.array as Float32Array;
+      for (let i = 0; i < arr.length; i += 3) {
+        arr[i] += w.vel[i] * dt; arr[i + 1] += w.vel[i + 1] * dt; arr[i + 2] += w.vel[i + 2] * dt;
+        if (w.kind === 6 && Math.random() < 0.002) { arr[i] += (Math.random() - 0.5) * 3; }
+        if (arr[i + 1] < 0) arr[i + 1] += w.box.h; else if (arr[i + 1] > w.box.h) arr[i + 1] -= w.box.h;
+        if (arr[i] > w.box.x / 2) arr[i] -= w.box.x; else if (arr[i] < -w.box.x / 2) arr[i] += w.box.x;
+        if (arr[i + 2] > w.box.z / 2) arr[i + 2] -= w.box.z; else if (arr[i + 2] < -w.box.z / 2) arr[i + 2] += w.box.z;
+      }
+      a.needsUpdate = true;
+    }
+    if (this.vendor) { const f = Math.floor(this.time * 2) % 2; (this.vendor.material as THREE.SpriteMaterial).map = tex(getVendorSprite(f)); }
+    if (this.shrineLight) this.shrineLight.intensity = (this.shrine?.visible ? 8 : 0) + Math.sin(this.time * 2) * 2;
     for (const t of this.terminals) {
       t.t += dt;
       if (t.t > 0.12) { t.t = 0; t.frame++; (t.mesh.material as THREE.MeshBasicMaterial).map = tex(getTerminalTexture(t.frame % 8)); }

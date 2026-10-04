@@ -3,7 +3,11 @@
 
 import * as THREE from 'three';
 import type { EnemySnap, GameEvent, Pedestal, PlayerPrivate, PlayerSnap, RoomDesc, RunSummary, ServerMsg, Snapshot, WeaponId, Difficulty } from '../shared/protocol';
-import { generateRoom, raycastBoxes, rayVsSphere, rayVsCylinder, BIOME_NAMES, Box } from '../shared/mapData';
+import { generateRoom, raycastBoxes, rayVsSphere, rayVsCylinder, BIOME_NAMES, Box, MUTATOR_NAME } from '../shared/mapData';
+import type { ShopItem } from '../shared/protocol';
+import { WARDEN_VOICE, ANNOUNCER } from './audio/voices';
+import { BIOME_INFO, BROKER_LINES, maraLog, MUTATOR_INFO, TRUE_ENDING_SCRIPT, endlessLine } from './story/fragments';
+import { biomeLine } from './story/handlerLines';
 import { ENEMIES } from '../shared/enemyDefs';
 import { WEAPONS, WEAPON_ORDER } from '../shared/weaponDefs';
 import { computeMods, POWERUP_BY_ID, SYNERGIES, Mods } from '../shared/powerupDefs';
@@ -19,7 +23,7 @@ import { handlerPhase } from './story/handlerLines';
 import { projColor } from './render/entities';
 import { levelFromXp } from '../server/progression';
 
-const ENEMY_NAMES: Record<string, string> = { drone: 'DRONE', grunt: 'GRUNT', brute: 'BRUTE', stalker: 'STALKER', spider: 'SPIDER', replica: 'REPLICA', warden: 'WARDEN' };
+const ENEMY_NAMES: Record<string, string> = { drone: 'DRONE', grunt: 'GRUNT', brute: 'BRUTE', stalker: 'STALKER', spider: 'SPIDER', replica: 'REPLICA', warden: 'WARDEN', leech: 'LEECH', sentinel: 'SENTINEL', bomber: 'BOMBER', mortar: 'MORTAR', bulwark: 'BULWARK', wraith: 'WRAITH' };
 const STREAK_TEXT = ['', 'DOUBLE KILL', 'TRIPLE KILL', 'MEGA KILL', 'RAMPAGE'];
 
 interface SnapEntry { t: number; s: Snapshot }
@@ -30,6 +34,7 @@ export interface GameCallbacks {
   onLobby(players: { id: string; name: string }[], endsIn: number, host: boolean): void;
   onStarted(): void;
   onTerminal(lines: string[], fragment: Fragment | null): void;
+  onCinematic(script: { speaker: string; text: string; delay: number }[], done: () => void): void;
 }
 
 export class Game {
@@ -89,15 +94,25 @@ export class Game {
   focusPed: Pedestal | null = null;
   lastSnapT = 0;
   replicaRoom = false;
+  scrap = 0;
+  shop: ShopItem[] | null = null;
+  focusShop: ShopItem | null = null;
+  shrine = false;
+  shrinePos: { x: number; z: number } | null = null;
+  latchedBy = new Set<number>();
+  latchEl: HTMLDivElement | null = null;
+  brokerVisits = 0;
   aware = false;
   prevAlive = new Map<number, EnemySnap>();
   private tmpV = new THREE.Vector3();
   private dir = new THREE.Vector3();
   private killedIds = new Set<number>();
+  cinematic = false;
   private hazardFx = 0;
   private lastPhase = 1;
   private gloryCooldown = 0;
   private pendingFragment: Fragment | null = null;
+  maraText = '';
 
   constructor(public world: World, public net: Transport, public meta: Meta, public cb: GameCallbacks, public opts: { difficulty: Difficulty; seed?: string; solo: boolean }) {
     this.mods = computeMods([], metaLevel(meta).level);
@@ -244,14 +259,27 @@ export class Game {
     this.priv = p;
     this.mods = computeMods(p.powerups, this.level);
     const lp = this.world.player;
-    lp.params = {
-      speedMult: this.mods.speedMult, jumpMult: this.mods.jumpMult, airControl: this.mods.airControl,
-      maxDash: this.mods.maxDash, dashCooldown: this.mods.dashCooldown, extraJumps: this.mods.extraJumps, wallRunTime: this.mods.wallRunTime,
-    };
+    this.applyParams();
+    this.scrap = p.scrap;
+    this.shrine = p.shrine;
+    if (p.shop) this.shop = p.shop;
     // server ammo is authoritative but we predict locally; only correct big drift
     for (const w of WEAPON_ORDER) if (Math.abs(p.ammo[w] - this.ammo[w]) > 0.2) this.ammo[w] = p.ammo[w];
     if (!p.pedestals && hadPeds) this.pedestals = null;
     this.world.hud.setPowerups(p.powerups);
+  }
+
+  /** physics params from mods + room mutator + combo (Blood Rush) */
+  applyParams() {
+    const lp = this.world.player;
+    const mut = this.room?.mutator;
+    const combo = this.latest?.combo ?? 1;
+    lp.params = {
+      speedMult: this.mods.speedMult * (mut === 'overclock' ? 1.15 : 1) * (1 + this.mods.bloodrush * (combo - 1)),
+      jumpMult: this.mods.jumpMult, airControl: mut === 'lowgrav' ? Math.min(1, this.mods.airControl + 0.2) : this.mods.airControl,
+      maxDash: this.mods.maxDash, dashCooldown: this.mods.dashCooldown, extraJumps: this.mods.extraJumps, wallRunTime: this.mods.wallRunTime,
+      gravityMult: mut === 'lowgrav' ? 0.45 : 1,
+    };
   }
 
   // ───────────────────────────── events: the juice ─────────────────────────────
@@ -295,6 +323,7 @@ export class Game {
           w.lookLockT = C.GLORY_SLOWMO;
           w.lookTarget = new THREE.Vector3(e.x, e.y, e.z);
           w.hud.glory();
+          if (this.mods.reaper) w.player.s.dashCharges = this.mods.maxDash;
           sfx.gloryKill();
           this.rumble(1, 1, 380);
           this.flashLightbar(255, 60, 0, 0.4);
@@ -351,6 +380,7 @@ export class Game {
           this.streakT = 6;
           const txt = STREAK_TEXT[e.level] + (e.level === 4 && e.kills > 5 ? ` x${e.kills}` : '');
           w.hud.announcer.show(txt, 'l' + e.level, undefined, true);
+          w.cast.say('announcer', ANNOUNCER.streak[e.level], e.level >= 3 ? 3 : 0);
           sfx.streak(e.level);
           this.rumble(0.2 * e.level, 0.25 * e.level, 120 + e.level * 60);
           w.hud.face.grin(1 + e.level * 0.4);
@@ -366,7 +396,7 @@ export class Game {
         const pos = { x: e.x, y: e.y, z: e.z };
         if (e.type === 'stalker') { sfx.stalkerShot(pos); w.fx.muzzle(e.x, e.y, e.z, new THREE.Color(5, 0.6, 0.4), 1.4); w.r.flashLight(e.x, e.y, e.z, 0xff3322, 20, 10, 0.08); }
         else {
-          const kind = e.type === 'warden' ? (this.room?.biome === 0 ? 'plasma' : 'orb') : e.type === 'spider' ? 'spit' : e.type === 'replica' ? 'replica' : 'bolt';
+          const kind = e.type === 'warden' ? (this.room?.biome === 0 || this.room?.biome === 5 ? 'plasma' : 'orb') : e.type === 'spider' ? 'spit' : e.type === 'replica' ? 'replica' : e.type === 'mortar' ? 'rocket' : e.type === 'wraith' ? 'orb' : e.type === 'bulwark' ? 'plasma' : 'bolt';
           sfx.enemyShoot(kind, pos);
           w.fx.muzzle(e.x, e.y, e.z, projColor(kind), e.type === 'warden' ? 2 : 0.7);
         }
@@ -380,12 +410,18 @@ export class Game {
         else if (e.type === 'brute') sfx.bruteRoar(pos);
         else if (e.type === 'stalker') sfx.stalkerChirp(pos);
         else if (e.type === 'drone') sfx.droneWhine(pos);
-        else if (e.type === 'spider') sfx.spiderTick(pos);
+        else if (e.type === 'spider' || e.type === 'leech') sfx.spiderTick(pos);
+        else if (e.type === 'bomber') { sfx.mineArm(pos); setTimeout(() => sfx.mineArm(pos), 150); }
+        else if (e.type === 'sentinel') sfx.stalkerChirp(pos);
+        else if (e.type === 'mortar') sfx.bruteStomp(pos);
+        else if (e.type === 'bulwark') sfx.gruntVoice(pos);
+        else if (e.type === 'wraith') sfx.teslaArc(pos);
         // enemies say your name (run 4+)
         if (this.runCount >= 3 && e.type !== 'replica' && this.whisperCd <= 0 && Math.random() < 0.35) {
           this.whisperCd = 7;
           const line = ENEMY_WHISPERS[Math.floor(Math.random() * ENEMY_WHISPERS.length)].replace(/\{name\}/g, this.meta.name);
           w.hud.pops.spawn(pos.x, pos.y + 1.2, pos.z, line, 'whisper', 2.4, 0.3);
+          w.cast.say('enemy', line, 0);
         }
         break;
       }
@@ -408,6 +444,7 @@ export class Game {
         sfx.roomClear();
         w.hud.announcer.show(this.room?.kind === 'boss' ? 'WARDEN DESTROYED' : 'ROOM CLEARED', this.room?.kind === 'boss' ? 'gold big' : 'l3', `+${e.xp} XP`);
         this.gainXp(e.xp);
+        w.cast.say('announcer', this.room?.kind === 'boss' ? ANNOUNCER.wardenDown : ANNOUNCER.roomClear[Math.floor(Math.random() * 3)], this.room?.kind === 'boss' ? 2 : 0);
         w.say(this.room?.kind === 'boss' ? 'bossKill' : 'roomClear', this.runCount, 2, 4);
         w.hud.setBoss(null);
         break;
@@ -437,6 +474,7 @@ export class Game {
           this.rumble(0.8, 1, 500);
           this.flashLightbar(120, 255, 120, 1.2);
           w.hud.announcer.show(s?.name ?? 'NEW PROTOCOL', 'green big', 'HIDDEN SYNERGY DISCOVERED', true);
+          w.cast.say('announcer', s?.name ?? ANNOUNCER.synergy, 3);
           w.say('synergy', this.runCount, 4, 0);
           if (!this.meta.synergies.includes(e.synergy)) this.meta.synergies.push(e.synergy);
         }
@@ -453,6 +491,9 @@ export class Game {
         this.rumble(1, 0.1, 900);
         setTimeout(() => sfx.wardenRoar(), 900);
         w.hud.announcer.show(e.name, 'big', e.title, true);
+        w.wardenName = e.name;
+        { const wv = WARDEN_VOICE[this.room?.biome ?? 0]; setTimeout(() => w.cast.say('warden', wv.intro[Math.floor(Math.random() * wv.intro.length)], 3), 1700); }
+        if (this.room?.biome === 6) setTimeout(() => w.say('handlerBoss', this.runCount, 5, 0), 5200);
         w.shake(10);
         w.say('bossIntro', this.runCount, 3, 0);
         this.lastPhase = 1;
@@ -465,6 +506,8 @@ export class Game {
           w.shake(14);
           w.flash(0.4);
           w.hud.announcer.show('PHASE ' + 'I'.repeat(e.phase), 'l4', undefined, true);
+          { const wv = WARDEN_VOICE[this.room?.biome ?? 0]; w.cast.say('warden', wv.phase[Math.floor(Math.random() * wv.phase.length)], 3); }
+          if (this.room?.biome === 6) setTimeout(() => w.say('handlerBossPhase', this.runCount, 5, 0), 2500);
           w.say('bossPhase', this.runCount, 2, 0);
         }
         break;
@@ -488,6 +531,77 @@ export class Game {
       case 'timerFail': w.hud.announcer.show('PURGE PROTOCOL', 'l4', 'TIME EXPIRED', true); w.say('gauntletFail', this.runCount, 3, 0); sfx.staticBurst(0.6); break;
       case 'runEnd': this.finish(e.summary); break;
       case 'chat': w.hud.chat(e.text); break;
+      case 'telegraph': w.fx.telegraph(e.x, e.z, e.r, e.t); break;
+      case 'shop': if (mine(e.id)) { this.shop = e.items; w.ents.showShop(e.items); } break;
+      case 'buy': {
+        if (mine(e.id)) {
+          w.ents.markSold(e.slot);
+          sfx.powerupPick();
+          this.rumble(0.3, 0.6, 120);
+          const def = e.item.offer ? POWERUP_BY_ID[e.item.offer.id] : null;
+          w.hud.announcer.show(def ? def.name : e.item.kind === 'heal' ? 'REPAIRED' : 'PLATED', 'sub', `-${e.item.price} SCRAP`);
+          w.cast.say('broker', pickLine(BROKER_LINES.buy), 1);
+          if (this.shop) { const it = this.shop.find((x) => x.slot === e.slot); if (it) it.sold = true; }
+        }
+        break;
+      }
+      case 'shrine': {
+        if (mine(e.id)) {
+          this.shrine = false;
+          sfx.levelUp();
+          w.flash(0.6);
+          w.tint('#fff0c0', 0.5);
+          w.hud.announcer.show('RESTORED', 'gold', 'INTEGRITY 100%');
+          this.rumble(0.2, 0.5, 400);
+          if (w.map.shrine) w.map.shrine.visible = false;
+        }
+        break;
+      }
+      case 'trial': {
+        if (e.state === 'start') { w.hud.announcer.show('TRIAL', 'l4', `CLEAR IN ${Math.round(e.time)}s FOR A LEGENDARY`, true); w.cast.say('announcer', ANNOUNCER.trialStart, 2); w.say('trialEnter', this.runCount, 2, 0); }
+        else if (e.state === 'win') { w.hud.announcer.show('TRIAL COMPLETE', 'gold big', 'LEGENDARY UNLOCKED', true); w.cast.say('announcer', ANNOUNCER.trialWin, 3); w.say('trialWin', this.runCount, 2, 0); w.flash(0.6); }
+        else { w.hud.announcer.show('TRIAL FAILED', 'l4', 'FINISH THEM ANYWAY', true); w.cast.say('announcer', ANNOUNCER.trialFail, 2); w.say('trialFail', this.runCount, 2, 0); }
+        break;
+      }
+      case 'scrap': if (mine(e.id)) { sfx.comboTick(3); w.hud.pops.spawn(w.player.x, w.player.y + 1.4, w.player.z - 0.6, `+${e.amount} ◆`, 'xp', 0.6, 1.2); if (Math.random() < 0.04) w.say('scrap', this.runCount, 0, 40); } break;
+      case 'latch': {
+        if (mine(e.id)) {
+          if (e.on) { this.latchedBy.add(e.enemy); w.say('leech', this.runCount, 1, 20); sfx.gibSplat(); this.rumble(0.6, 0.2, 300); }
+          else this.latchedBy.delete(e.enemy);
+          if (this.latchedBy.size && !this.latchEl) { this.latchEl = document.createElement('div'); this.latchEl.className = 'latch-fx'; document.getElementById('root')!.appendChild(this.latchEl); }
+          if (!this.latchedBy.size && this.latchEl) { this.latchEl.remove(); this.latchEl = null; }
+        }
+        break;
+      }
+      case 'shieldHit': {
+        w.fx.impact(e.x, e.y, e.z, new THREE.Color(1.5, 2.5, 5));
+        sfx.ripperHit();
+        break;
+      }
+      case 'phoenix': {
+        if (mine(e.id)) {
+          w.flash(1); w.tint('#ff6600', 0.9); w.shake(16); w.slowmo(0.8, 0.3);
+          w.hud.announcer.show('PHOENIX', 'gold big', 'NOT YET', true);
+          w.cast.say('announcer', 'PHOENIX', 3);
+          this.rumble(1, 1, 700);
+          w.hud.face.dead = false;
+        }
+        break;
+      }
+      case 'extractOffer': {
+        w.hud.announcer.show('EXTRACTION AVAILABLE', 'green big', 'WALK OUT — OR GO DEEPER', false);
+        setTimeout(() => { w.cast.say('announcer', ANNOUNCER.extract, 1); w.say('extractChoice', this.runCount, 3, 0); }, 2500);
+        break;
+      }
+      case 'trueEnding': {
+        // THE HANDLER is destroyed. Everything stops.
+        music.death();
+        const wv = WARDEN_VOICE[6];
+        w.cast.say('warden', wv.death[0], 3);
+        this.cinematic = true;
+        setTimeout(() => this.cb.onCinematic(TRUE_ENDING_SCRIPT, () => { this.cinematic = false; music.resume(); this.meta.trueEndingSeen = true; }), 2500);
+        break;
+      }
       case 'replica': {
         // the Handler will not comment.
         music.silence(3);
@@ -539,7 +653,12 @@ export class Game {
       if (p) w.hud.killfeed.push(p.name, ENEMY_NAMES[type], e.head ? ['HEADSHOT'] : [], false);
     }
     if (e.glory) w.slowmo(C.SLOWMO_GLORY_KILL, 0.35);
-    if (type === 'warden') { w.slowmo(1.2, 0.2); w.flash(1); w.shake(20); }
+    if (type === 'warden') {
+      w.slowmo(1.2, 0.2); w.flash(1); w.shake(20);
+      const b = this.room?.biome ?? 0;
+      if (b !== 6) w.cast.say('warden', WARDEN_VOICE[b].death[0], 3);
+      else setTimeout(() => w.say('handlerBossDeath', this.runCount, 6, 0), 400);
+    }
   }
 
   gainXp(n: number) {
@@ -548,6 +667,7 @@ export class Game {
     if (lv.level > this.level) {
       // level ups mid-run are celebrated now, banked on death
       this.world.hud.announcer.show(`LEVEL ${lv.level}`, 'gold', 'PERMANENT UPGRADE');
+      this.world.cast.say('announcer', ANNOUNCER.levelUp, 1);
       sfx.levelUp();
       this.world.say('levelUp', this.runCount, 1, 10);
       this.level = lv.level;
@@ -573,6 +693,7 @@ export class Game {
         w.flash(0.8);
         w.tint('#ffcc00', 0.6);
         w.hud.announcer.show('LEGENDARY', 'gold big', 'IT CHANGES HOW YOU PLAY', true);
+        w.cast.say('announcer', ANNOUNCER.legendary, 3);
         w.say('legendary', this.runCount, 3, 0);
         this.meta.legendariesSeen++;
       } else if (rarity === 'epic') {
@@ -612,22 +733,61 @@ export class Game {
         if (!this.alive) { this.alive = true; w.hud.face.dead = false; music.resume(); }
       }
       w.fade(false);
+      // anything offered during the fade survives the rebuild
+      if (this.shop) w.ents.showShop(this.shop);
+      if (this.pedestals) w.ents.showPedestals(this.pedestals);
       const term = geo.decor.find((d) => d.kind === 'terminal');
       if (term) this.terminalPos = { x: term.x + term.nx * 1.5, z: term.z + term.nz * 1.5 };
     }, first ? 0 : 220);
 
     const biome = BIOME_NAMES[room.biome];
-    w.hud.setRoom(`${biome} · ${room.index + 1}/${total}`);
+    const depth = room.index + 1;
+    w.depth = depth;
+    w.hud.setRoom(depth > total ? `${biome} · DEPTH ${depth}` : `${biome} · ${depth}/${total}`);
     music.setBiome(room.biome);
     if (first) { music.start(); music.resume(); }
     w.hud.setBoss(null);
+    // mutators
+    const mut = room.mutator;
+    w.hud.setMutator(mut ? `${MUTATOR_INFO[mut]?.name ?? MUTATOR_NAME[mut]}` : null);
+    w.muteHandler = mut === 'silence';
+    if (mut === 'silence') music.silence(9999); else if (!first) music.resume();
+    this.applyParams();
+    this.shop = null; this.shrinePos = null; this.shrine = false; this.latchedBy.clear();
+    if (this.latchEl) { this.latchEl.remove(); this.latchEl = null; }
+    const sh = geo.decor.find((d) => d.kind === 'shrine');
+    if (sh) { this.shrinePos = { x: sh.x, z: sh.z }; this.shrine = true; }
+    if (mut) setTimeout(() => { w.hud.announcer.show(MUTATOR_INFO[mut]?.name ?? MUTATOR_NAME[mut], 'l4', MUTATOR_INFO[mut]?.desc); w.cast.say('announcer', MUTATOR_INFO[mut]?.name ?? MUTATOR_NAME[mut], 1); if (mut !== 'silence') w.say('mutator', this.runCount, 1, 30); }, 1400);
     // narration
     if (first) w.say('runStart', this.runCount, 3, 0);
-    else if (room.index % 5 === 0 && room.kind !== 'boss') { w.hud.announcer.show(biome, 'big', `SECTOR ${room.biome + 1}`); w.say('biomeEnter', this.runCount, 3, 0, room.biome); }
+    else if (room.index % 5 === 0 && room.kind !== 'boss') {
+      const info = BIOME_INFO[room.biome];
+      const endless = depth > total;
+      w.hud.announcer.show(endless ? `DEPTH ${depth}` : biome, 'big', endless ? endlessLine(depth) : info?.subtitle ?? `SECTOR ${room.biome + 1}`);
+      if (endless) { w.cast.say('announcer', ANNOUNCER.depth(depth), 2); w.say('endless', this.runCount, 3, 0); }
+      else if (room.index >= 15 && room.index % 5 === 0) w.say(room.index === 15 ? 'deeper' : 'depthEnter', this.runCount, 3, 0);
+      const line = biomeLine(room.biome, this.runCount);
+      if (line && !w.muteHandler) setTimeout(() => w.voice.say(line, { runCount: this.runCount, priority: 3 }), 2200);
+      if (info?.intro) info.intro.forEach((t, i) => setTimeout(() => w.hud.pops.spawn(w.player.x + Math.sin(w.player.yaw) * -6, 2.6, w.player.z - Math.cos(w.player.yaw) * 6, t, 'whisper', 3.2, 0.15), 3500 + i * 2600));
+    }
+    else if (room.kind === 'shop') {
+      this.brokerVisits++;
+      const lore = this.meta.runCount + this.brokerVisits > 4 && Math.random() < 0.4;
+      setTimeout(() => w.cast.say('broker', lore ? pickLine(BROKER_LINES.lore) : pickLine(BROKER_LINES.greet), 2), 900);
+      w.hud.announcer.show('THE BROKER', 'green', 'SCRAP FOR SALVATION');
+      w.say('shopEnter', this.runCount, 1, 30);
+    }
+    else if (room.kind === 'sanctuary') {
+      w.hud.announcer.show('SANCTUARY', 'gold', 'REST. READ. HEAL.');
+      w.say('sanctuaryEnter', this.runCount, 1, 0);
+      this.roomFragment = null;
+      this.maraText = maraLog(this.runCount);
+    }
+    else if (room.kind === 'trial') { /* announced by the trial event */ }
     else if (room.kind === 'anomaly') {
       w.say('anomalyEnter', this.runCount, 3, 0);
       // corrupted doors carry story fragments
-      const f = nextFragment(this.meta.fragments, this.runCount);
+      const f = nextFragment(this.meta.fragments, this.runCount, room.biome);
       if (f) { this.roomFragment = f; this.pendingFragment = f; this.meta.fragments.push(f.id); w.hud.announcer.show('FRAGMENT DETECTED', 'green', 'ACCESS THE TERMINAL [E]'); }
       if (this.runCount >= 8) setTimeout(() => w.say('corpseRoom', this.runCount, 2, 0), 4000);
     }
@@ -781,7 +941,7 @@ export class Game {
     if (def.kind === 'charge') {
       if (held && this.fireCd <= 0 && this.ammo.lance > def.ammoCost * 0.4) {
         if (!this.charging) { this.charging = true; this.lanceCharge = 0; this.chargeLoop = sfx.lanceCharge(); }
-        this.lanceCharge = Math.min(1, this.lanceCharge + (dt * rateMult) / C.LANCE_CHARGE_TIME);
+        this.lanceCharge = Math.min(1, this.lanceCharge + (dt * rateMult * this.mods.lanceCharge) / C.LANCE_CHARGE_TIME);
         this.chargeLoop?.set(this.lanceCharge);
         if (this.lanceCharge >= 1) w.shake(0.8);
       } else if (this.charging && !held) {
@@ -820,7 +980,7 @@ export class Game {
     const p = w.player;
     if (def.kind === 'shotgun') {
       const agg = new Map<string, { id: number; head: boolean; n: number }>();
-      for (let i = 0; i < def.pellets; i++) {
+      for (let i = 0; i < def.pellets + this.mods.extraPellets; i++) {
         const d = this.aimDir(def.spread);
         const tr = this.trace(o, d, def.range, 1 + this.mods.pierce);
         for (const h of tr.hits) {
@@ -859,12 +1019,14 @@ export class Game {
       // PULSE: perfect first-shot accuracy, spread when spraying
       const spread = this.sprayT > 0.25 ? def.spread * Math.min(1, this.sprayT) : def.firstShotSpread;
       this.sprayT = Math.min(1.5, this.sprayT + 0.18);
-      const d = this.aimDir(spread);
-      const tr = this.trace(o, d, def.range, 1 + this.mods.pierce);
-      for (const h of tr.hits) { hits.push({ id: h.id, head: h.head, n: 1 }); anyHit = true; anyHead ||= h.head; }
-      const end = o.clone().addScaledVector(d, tr.end);
-      w.fx.tracer(mz.x, mz.y, mz.z, end.x, end.y, end.z, new THREE.Color(3.5, 2.2, 0.8), 0.06);
-      if (!tr.hits.length && tr.end < def.range) w.fx.impact(end.x, end.y, end.z, new THREE.Color(3, 2, 0.8));
+      for (let b = 0; b < (this.mods.hydra ? 3 : 1); b++) {
+        const d = this.aimDir(b === 0 ? spread : spread + 0.03);
+        const tr = this.trace(o, d, def.range, 1 + this.mods.pierce);
+        for (const h of tr.hits) { hits.push({ id: h.id, head: h.head, n: 1 }); anyHit = true; anyHead ||= h.head; }
+        const end = o.clone().addScaledVector(d, tr.end);
+        w.fx.tracer(mz.x, mz.y, mz.z, end.x, end.y, end.z, b ? new THREE.Color(1, 3, 2.5) : new THREE.Color(3.5, 2.2, 0.8), 0.06);
+        if (!tr.hits.length && tr.end < def.range) w.fx.impact(end.x, end.y, end.z, new THREE.Color(3, 2, 0.8));
+      }
       sfx.pulseShot();
       this.rumble(0.12, 0.35, 45);
       w.shake(1.2);
@@ -1033,13 +1195,40 @@ export class Game {
       this.focusPed = best;
       if (best && inp.pressed.has('use')) this.net.send({ t: 'pick', slot: best.slot });
     }
-    w.hud.pedestalInfo(this.focusPed, inp.padActive ? '□' : inp.touchMode ? 'USE' : 'E');
+    const useKey = inp.padActive ? '□' : inp.touchMode ? 'USE' : 'E';
+    // the Broker's wares
+    this.focusShop = null;
+    if (this.shop && !target) {
+      let best: ShopItem | null = null, bd = 2.6;
+      for (const it of this.shop) { if (it.sold) continue; const d = Math.hypot(it.x - lp.x, it.z - lp.z); if (d < bd) { bd = d; best = it; } }
+      this.focusShop = best;
+      if (best && inp.pressed.has('use')) {
+        if (this.scrap >= best.price) this.net.send({ t: 'buy', slot: best.slot });
+        else { sfx.dryFire(); w.cast.say('broker', pickLine(BROKER_LINES.poor), 1); }
+      }
+    }
+    if (this.focusShop) w.hud.shopInfo(this.focusShop, useKey, this.scrap);
+    else w.hud.pedestalInfo(this.focusPed, useKey);
+    // the shrine
+    if (this.shrinePos && this.shrine && !target && Math.hypot(this.shrinePos.x - lp.x, this.shrinePos.z - lp.z) < 2.6) {
+      prompt = `[${useKey}] REST AT THE SHRINE`;
+      if (inp.pressed.has('use')) this.net.send({ t: 'shrine' });
+    }
     // terminal (anomaly rooms)
     if (this.terminalPos && !target && !this.focusPed) {
       const d = Math.hypot(this.terminalPos.x - lp.x, this.terminalPos.z - lp.z);
       if (d < 2.6) {
         prompt = inp.padActive ? '[□] ACCESS TERMINAL' : inp.touchMode ? 'USE · ACCESS TERMINAL' : '[E] ACCESS TERMINAL';
-        if (inp.pressed.has('use')) { sfx.terminalBeep(); this.cb.onTerminal(terminalText(this.runCount, Math.random), this.roomFragment); }
+        if (inp.pressed.has('use')) {
+          sfx.terminalBeep();
+          if (this.room?.kind === 'sanctuary') {
+            this.cb.onTerminal(['> PLAYBACK: SUBJECT 0112 "MARA"', '> SOURCE: UNLOGGED', '', this.maraText], null);
+            w.cast.say('mara', this.maraText, 3);
+          } else {
+            this.cb.onTerminal(terminalText(this.runCount, Math.random), this.roomFragment);
+            if (this.roomFragment) w.cast.say('system', this.roomFragment.title + '. ' + this.roomFragment.text.split(/[.\n]/)[0], 2);
+          }
+        }
       }
     }
     w.hud.prompt(prompt);
@@ -1071,6 +1260,9 @@ export class Game {
     const h = this.world.hud;
     h.setHp(this.hp, this.maxHp, this.armor);
     h.setScore(this.score);
+    const meS = s.players.find((p) => p.id === this.me);
+    if (meS) { this.scrap = meS.scrap; h.setScrap(meS.scrap); }
+    if (this.mods.bloodrush > 0) this.applyParams();
     h.setCombo(s.combo, s.combo > 1 ? Math.max(0, s.comboTimer / C.COMBO_DECAY_TIME) : 0);
     h.setAmmo(this.weapon, this.ammo[this.weapon]);
     h.setWeapons(this.priv?.unlockedWeapons ?? unlockedFor(this.level), this.weapon);
@@ -1090,6 +1282,8 @@ export class Game {
     this.world.hud.face.age = Math.min(1, this.runCount / 40);
   }
 }
+
+export function pickLine(a: string[]): string { return a[Math.floor(Math.random() * a.length)] ?? ''; }
 
 export function unlockedFor(level: number): WeaponId[] {
   const w: WeaponId[] = ['pulse', 'breacher'];
