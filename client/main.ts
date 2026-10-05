@@ -237,7 +237,8 @@ class App {
           <div class="k">MOVE</div><div class="v">W A S D</div>
           <div class="k">AIM</div><div class="v">MOUSE</div>
           <div class="k">FIRE / CHARGE LANCE</div><div class="v">LMB (HOLD)</div>
-          <div class="k">GLORY KILL</div><div class="v">F / RMB</div>
+          <div class="k">AIM / SCOPE</div><div class="v">RMB (HOLD)</div>
+          <div class="k">GLORY KILL</div><div class="v">F</div>
           <div class="k">SPRINT (HOLD)</div><div class="v">SHIFT</div>
           <div class="k">JUMP (HOLD = BHOP) · MANTLE</div><div class="v">SPACE</div>
           <div class="k">CROUCH · SLIDE</div><div class="v">CTRL / C</div>
@@ -249,7 +250,7 @@ class App {
         <div><h3>DUALSENSE</h3><div class="kv">
           <div class="k">MOVE / AIM</div><div class="v">L STICK / R STICK</div>
           <div class="k">FIRE</div><div class="v">R2</div>
-          <div class="k">FOCUS AIM + GLORY</div><div class="v">L2</div>
+          <div class="k">AIM / SCOPE</div><div class="v">L2</div>
           <div class="k">GLORY KILL</div><div class="v">R3</div>
           <div class="k">SPRINT (TOGGLE)</div><div class="v">L3</div>
           <div class="k">JUMP (HOLD = BHOP) · MANTLE</div><div class="v">✕</div>

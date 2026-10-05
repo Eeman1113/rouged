@@ -49,6 +49,8 @@ export class World {
   fovBase = 95;
   lookLockT = 0;
   lookTarget: THREE.Vector3 | null = null;
+  /** aim-down-sights zoom factor (1 = none) */
+  zoom = 1;
   wardenName = 'WARDEN';
   depth = 1;
   /** silence mutator: the Handler is cut off */
@@ -178,7 +180,9 @@ export class World {
     );
     const pitch = Math.max(-1.55, Math.min(1.55, p.pitch + p.pitchOff * Math.max(0.35, mk)));
     cam.rotation.set(pitch + this.r.shakeY, p.yaw + this.r.shakeX, p.roll * Math.max(0.35, mk) + p.bobRoll * mk);
-    const targetFov = Math.max(40, Math.min(150, this.fovBase + p.fovAdd));
+    let targetFov = Math.max(40, Math.min(150, this.fovBase + p.fovAdd));
+    // ADS zoom: narrow the vertical FOV by the zoom factor
+    if (this.zoom > 1.001) targetFov = (2 * Math.atan(Math.tan((targetFov * Math.PI) / 360) / this.zoom) * 180) / Math.PI;
     // springs already smooth the motion FOV; this only eases settings changes / big jumps
     cam.fov += (targetFov - cam.fov) * (1 - Math.exp(-dt * 30));
     // vertical fov from horizontal-ish setting: treat setting as vertical-at-4:3

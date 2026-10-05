@@ -25,7 +25,7 @@ export class Announcer {
     this.el.appendChild(d);
     if (a.sub) {
       const s = document.createElement('div');
-      s.className = 'ann sub';
+      s.className = 'ann-line';
       s.textContent = a.sub;
       this.el.appendChild(s);
     }

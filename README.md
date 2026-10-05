@@ -117,6 +117,7 @@ You carry all four weapons at once, and switching is instant. Each one is drawn 
 | `1` | **PULSE** | 480 rpm energy rifle. Your first shot always hits dead centre. Reload: the spent cell vents vapour and a fresh one is slapped in. |
 | `2` | **BREACHER** | Rusted double-barrel. It breaks open after every shot and the shells tumble out. Knocks enemies back hard. |
 | `3` | **LANCE** | Hold to charge. The coils light up one by one, and the beam pierces everything in its line. |
+| `RMB` | **AIM** | PULSE: red-dot, 1.6×. BREACHER: shouldered, tighter cone. LANCE: full sniper scope, 3.2×. |
 | `4` | **RIPPER** | Chainsaw. Infinite fuel. Any staggered enemy it touches becomes a glory kill. |
 
 <br/>
@@ -215,7 +216,8 @@ Every voice in ROUGED is **synthetic**: a speech engine shaped differently for e
 |:--|:--|
 | Move | `W A S D` |
 | Fire / charge Lance | `LMB` hold |
-| Glory kill | `F` / `RMB` |
+| Aim / scope | `RMB` hold |
+| Glory kill | `F` |
 | Sprint (hold) | `SHIFT` |
 | Jump (hold = bunny-hop, tap on landing = faster hop) | `SPACE` |
 | Mantle | `SPACE` / `W` into a waist-to-chest-high ledge |
@@ -232,8 +234,8 @@ Every voice in ROUGED is **synthetic**: a speech engine shaped differently for e
 |:--|:--|
 | Move / aim | `L-stick` / `R-stick` |
 | Fire | `R2` |
-| Focus aim + glory | `L2` |
-| Glory kill | `R3` |
+| Aim / scope | `L2` |
+| Glory kill | `R3` / `□` |
 | Sprint (toggle, cancels when you stop) | `L3` |
 | Jump | `✕` |
 | Crouch · slide | `◯` |

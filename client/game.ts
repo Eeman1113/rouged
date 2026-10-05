@@ -112,6 +112,25 @@ export class Game {
   lookDX = 0;
   lookDY = 0;
 
+  /** right mouse / L2: aim down sights. Each weapon aims its own way. */
+  aimT = 0;
+  private baseSpeedMult = 1;
+  updateAim(dt: number) {
+    const w = this.world, inp = w.input, lp = w.player;
+    const can = this.alive && !this.paused && this.weapon !== 'ripper' && this.reloadT <= 0 && lp.s.slideT <= 0 && lp.s.dashT <= 0 && !this.cinematic;
+    const want = can && inp.held.has('aim');
+    if (want) lp.suppressSprint(0.12);
+    const rate = this.weapon === 'lance' ? 7 : 11;
+    this.aimT += ((want ? 1 : 0) - this.aimT) * Math.min(1, dt * rate);
+    if (this.aimT < 0.002) this.aimT = 0;
+    const Z: Record<WeaponId, number> = { pulse: 1.6, breacher: 1.2, lance: 3.2, ripper: 1 };
+    w.zoom = 1 + (Z[this.weapon] - 1) * this.aimT;
+    lp.params.speedMult = this.baseSpeedMult * (1 - 0.32 * this.aimT);
+    const h = w.hud as unknown as { ads?: number; adsWeapon?: WeaponId; motion?: Record<string, unknown> };
+    h.ads = this.aimT; h.adsWeapon = this.weapon;
+    if (h.motion) h.motion.ads = this.aimT;
+  }
+
   /** R / □: full reload. Breacher reloads itself after each shot; this tops it up early. */
   startReload() {
     if (this.reloadT > 0 || !this.alive || this.charging) return;
@@ -294,7 +313,7 @@ export class Game {
     const mut = this.room?.mutator;
     const combo = this.latest?.combo ?? 1;
     lp.params = {
-      speedMult: this.mods.speedMult * (mut === 'overclock' ? 1.15 : 1) * (1 + this.mods.bloodrush * (combo - 1)),
+      speedMult: (this.baseSpeedMult = this.mods.speedMult * (mut === 'overclock' ? 1.15 : 1) * (1 + this.mods.bloodrush * (combo - 1))) * (1 - 0.32 * this.aimT),
       jumpMult: this.mods.jumpMult, airControl: mut === 'lowgrav' ? Math.min(1, this.mods.airControl + 0.2) : this.mods.airControl,
       maxDash: this.mods.maxDash, dashCooldown: this.mods.dashCooldown, extraJumps: this.mods.extraJumps, wallRunTime: this.mods.wallRunTime,
       gravityMult: mut === 'lowgrav' ? 0.45 : 1,
@@ -1001,7 +1020,7 @@ export class Game {
     if (def.kind === 'shotgun') {
       const agg = new Map<string, { id: number; head: boolean; n: number }>();
       for (let i = 0; i < def.pellets + this.mods.extraPellets; i++) {
-        const d = this.aimDir(def.spread);
+        const d = this.aimDir(def.spread * (1 - 0.45 * this.aimT));
         const tr = this.trace(o, d, def.range, 1 + this.mods.pierce);
         for (const h of tr.hits) {
           const k = h.id + (h.head ? 'h' : 'b');
@@ -1037,7 +1056,7 @@ export class Game {
       if (charge > 0.9) w.flash(0.12);
     } else {
       // PULSE: perfect first-shot accuracy, spread when spraying
-      const spread = this.sprayT > 0.25 ? def.spread * Math.min(1, this.sprayT) : def.firstShotSpread;
+      const spread = (this.sprayT > 0.25 ? def.spread * Math.min(1, this.sprayT) : def.firstShotSpread) * (1 - 0.85 * this.aimT);
       this.sprayT = Math.min(1.5, this.sprayT + 0.18);
       for (let b = 0; b < (this.mods.hydra ? 3 : 1); b++) {
         const d = this.aimDir(b === 0 ? spread : spread + 0.03);
@@ -1086,8 +1105,9 @@ export class Game {
       const look = inp.consumeLook();
       this.lookDX = look.dx; this.lookDY = look.dy;
       if (w.lookLockT <= 0) {
-        lp.yaw -= look.dx;
-        lp.pitch = Math.max(-1.45, Math.min(1.45, lp.pitch - look.dy));
+        const sensK = 1 / Math.pow(w.zoom, 0.85); // scoped = slower look
+        lp.yaw -= look.dx * sensK;
+        lp.pitch = Math.max(-1.45, Math.min(1.45, lp.pitch - look.dy * sensK));
         this.aimAssist(dt);
       }
     }
@@ -1154,6 +1174,7 @@ export class Game {
     // interactions
     if (alive) this.interact();
     this.updateDualSense(dt);
+    this.updateAim(dt);
 
     // advance the local sim (solo)
     if (!this.paused || !this.net.local) this.net.update(dt, scale);
@@ -1211,7 +1232,7 @@ export class Game {
       if (d < C.GLORY_RANGE + 0.6 && (!target || d < target.d)) target = { id: v.id, d };
     }
     if (target) {
-      prompt = inp.padActive ? '[R3 / L2] GLORY KILL' : inp.touchMode ? 'USE · GLORY KILL' : '[F] GLORY KILL';
+      prompt = inp.padActive ? '[R3 / □] GLORY KILL' : inp.touchMode ? 'USE · GLORY KILL' : '[F] GLORY KILL';
       if ((inp.pressed.has('glory') || inp.pressed.has('use')) && this.gloryCooldown <= 0) {
         this.gloryCooldown = 0.3;
         this.net.send({ t: 'glory', enemy: target.id });

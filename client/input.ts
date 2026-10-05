@@ -1,7 +1,7 @@
 // Keyboard + mouse (pointer lock) + touch + gamepad/DualSense, unified into one per-frame state.
 import { Pad, BTN } from './gamepad';
 
-export type Action = 'fwd' | 'back' | 'left' | 'right' | 'jump' | 'dash' | 'slide' | 'sprint' | 'sprintT' | 'fire' | 'use' | 'glory' | 'reload' | 'inspect' | 'w1' | 'w2' | 'w3' | 'w4' | 'wnext' | 'wprev' | 'wlast' | 'pause' | 'stats';
+export type Action = 'fwd' | 'back' | 'left' | 'right' | 'jump' | 'dash' | 'slide' | 'sprint' | 'sprintT' | 'fire' | 'use' | 'glory' | 'reload' | 'inspect' | 'aim' | 'w1' | 'w2' | 'w3' | 'w4' | 'wnext' | 'wprev' | 'wlast' | 'pause' | 'stats';
 
 const KEYMAP: Record<string, Action> = {
   KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
@@ -73,13 +73,13 @@ export class Input {
     window.addEventListener('mousedown', (e) => {
       if (!this.locked) return;
       if (e.button === 0) { this.pressed.add('fire'); this.held.add('fire'); }
-      if (e.button === 2) { this.pressed.add('glory'); this.held.add('glory'); }
+      if (e.button === 2) { this.pressed.add('aim'); this.held.add('aim'); }
       if (e.button === 1) { this.pressed.add('use'); }
       if (e.button === 3 || e.button === 4) { e.preventDefault(); this.pressed.add('dash'); } // side buttons dash
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) { this.held.delete('fire'); this.released.add('fire'); }
-      if (e.button === 2) { this.held.delete('glory'); this.released.add('glory'); }
+      if (e.button === 2) { this.held.delete('aim'); this.released.add('aim'); }
       if ((e.button === 3 || e.button === 4) && this.locked) e.preventDefault(); // don't navigate back/forward
     });
     window.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -156,7 +156,7 @@ export class Input {
     if (!gameplay) { for (const a of this.padHeld) { this.held.delete(a); } this.padHeld.clear(); this.padMoveX = this.padMoveY = 0; return; }
     const map: [number, Action][] = [
       [BTN.CROSS, 'jump'], [BTN.CIRCLE, 'slide'], [BTN.L1, 'dash'], [BTN.L3, 'sprintT'], [BTN.R2, 'fire'],
-      [BTN.SQUARE, 'use'], [BTN.R3, 'glory'], [BTN.L2, 'glory'], [BTN.R1, 'wnext'], [BTN.TRIANGLE, 'wlast'],
+      [BTN.SQUARE, 'use'], [BTN.R3, 'glory'], [BTN.L2, 'aim'], [BTN.R1, 'wnext'], [BTN.TRIANGLE, 'wlast'],
       [BTN.UP, 'w1'], [BTN.RIGHT, 'w2'], [BTN.DOWN, 'w3'], [BTN.LEFT, 'w4'],
     ];
     const now = new Set<Action>();

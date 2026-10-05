@@ -12,6 +12,8 @@ export interface ViewMotion {
   bobT: number; bobAmt: number; land: number; sliding: boolean; dashing: boolean; airborne: boolean;
   lookDX: number; lookDY: number /* radians turned this frame, for weapon sway */;
   sprinting?: boolean; crouching?: boolean;
+  /** aim-down-sights blend 0..1 */
+  ads?: number;
 }
 
 type AnimName = 'idle' | 'equip' | 'reload' | 'inspect' | 'cycle';
@@ -219,6 +221,7 @@ export class Viewmodel {
     [this.sprint, this.sprintv] = spring(this.sprint, this.sprintv, sprT, 260, 30, dt);
     this.crouch += ((m.crouching ? 1 : 0) - this.crouch) * Math.min(1, dt * 12);
     this.air += ((m.airborne ? 1 : 0) - this.air) * Math.min(1, dt * 8);
+    const ads = Math.max(0, Math.min(1, m.ads ?? 0));
     const busy = this.anim === 'reload' || this.anim === 'inspect';
     const lowAmt = Math.max(0, Math.min(1, busy ? this.low * 0.4 : this.low));
     const sprAmt = Math.max(0, Math.min(1, busy ? this.sprint * 0.3 : this.sprint));
@@ -237,6 +240,9 @@ export class Viewmodel {
     p.gp += -0.42 * sq - 0.3 * lq;
     p.gr += 0.55 * sq + 0.35 * lq;
     p.gyw += 0.32 * sq + 0.1 * lq;
+    // ADS: gun swings in toward the centre line, straightens, comes up to the eye
+    const aq = q(ads, 0.25);
+    if (aq > 0) { p.gyw += (this.id === 'pulse' ? -0.2 : -0.3) * aq; p.gr += -0.22 * aq; p.gp += 0.06 * aq; }
     // glory: off-hand leaves the gun, gun dips away
     const gl = this.gloryT < 0.55 ? Math.sin(Math.min(1, this.gloryT / 0.5) * Math.PI) : 0;
     if (this.gloryT < 0.5) { p.lhide = 1; p.gp += -q(gl, 0.25) * 0.5; p.gr += q(gl, 0.25) * 0.3; }
@@ -261,7 +267,7 @@ export class Viewmodel {
     this.lastPose = p;
 
     // ---- 2D motion (base px)
-    const bobAmp = m.bobAmt * (1 + sprAmt * 1.4) * (1 - lowAmt * 0.6) * (1 - this.crouch * 0.3);
+    const bobAmp = m.bobAmt * (1 + sprAmt * 1.4) * (1 - lowAmt * 0.6) * (1 - this.crouch * 0.3) * (1 - ads * 0.75);
     this.bobPhase = m.bobT;
     let ox = Math.sin(m.bobT) * 5 * bobAmp + this.sx;
     let oy = Math.abs(Math.cos(m.bobT)) * 4 * bobAmp + this.sy;
@@ -269,6 +275,11 @@ export class Viewmodel {
     ox += Math.sin(this.t * 1.1) * 0.8; oy += Math.sin(this.t * 1.7) * 1.1;
     oy += m.land * 38 + this.crouch * 5 - this.air * 3;
     ox += sprAmt * 10 + lowAmt * 14; oy += sprAmt * 16 + lowAmt * 26;
+    // ADS translation: toward screen centre (scope: the Lance drops out of view behind the optic)
+    const adsX = this.id === 'breacher' ? -52 : this.id === 'lance' ? -30 : -70;
+    const adsY = this.id === 'lance' ? 60 : this.id === 'breacher' ? -4 : 6;
+    ox += adsX * ads; oy += adsY * ads;
+    if (ads > 0) { this.sx *= 1 - ads * 0.6; this.sy *= 1 - ads * 0.6; }
     // recoil remainder: pushed back toward the camera = down/right
     ox += this.kb * 0.45 + (this.kyw - q(this.kyw, 0.04)) * -60;
     oy += this.kb * 0.8 - (this.kp - q(Math.max(0, this.kp), 0.035)) * 120;
@@ -280,8 +291,8 @@ export class Viewmodel {
     if (this.anim === 'equip') { const u = Math.min(1, this.at / this.adur); oy += (1 - u) * (1 - u) * 60; }
     this.offX = ox; this.offY = oy;
 
-    // ---- blit
-    if (frame.cv) {
+    // ---- blit (a fully scoped Lance is hidden behind the scope overlay)
+    if (frame.cv && !(this.id === 'lance' && ads > 0.8)) {
       const dx = Math.round(this.cx + (frame.ox + ox) * scale), dy = Math.round(this.cy + (frame.oy + oy) * scale);
       g.drawImage(frame.cv, dx, dy, frame.cv.width * scale, frame.cv.height * scale);
     }

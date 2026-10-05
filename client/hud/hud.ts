@@ -280,6 +280,45 @@ export class Hud {
 
   // ───────────────────────────── 2D layer ─────────────────────────────
 
+  /** ADS blend 0..1, set by the game every frame */
+  ads = 0;
+  adsWeapon: WeaponId = 'pulse';
+
+  /** Lance sniper scope: black mask, lens tint, mil-dot reticle, charge ring. */
+  private drawScope(g: CanvasRenderingContext2D, W: number, H: number, ads: number) {
+    const cx = W / 2, cy = H / 2;
+    const k = Math.min(1, (ads - 0.05) / 0.6);
+    const r = Math.round(H * (0.62 - 0.2 * k));
+    g.save();
+    g.globalAlpha = k;
+    // mask
+    g.fillStyle = '#000';
+    g.beginPath(); g.rect(0, 0, W, H); g.arc(cx, cy, r, 0, Math.PI * 2, true); g.fill();
+    // lens tint + vignette ring
+    const grd = g.createRadialGradient(cx, cy, r * 0.55, cx, cy, r);
+    grd.addColorStop(0, 'rgba(40,120,170,0.06)'); grd.addColorStop(0.85, 'rgba(0,10,20,0.35)'); grd.addColorStop(1, 'rgba(0,0,0,0.95)');
+    g.fillStyle = grd; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+    // reticle: thin lines, dark core with a pale edge so it reads on any scene
+    g.shadowColor = 'rgba(210,235,255,0.9)'; g.shadowBlur = 0; g.shadowOffsetX = 1; g.shadowOffsetY = 1;
+    g.fillStyle = 'rgba(5,8,10,0.95)';
+    g.fillRect(Math.round(cx - r), Math.round(cy), Math.round(r - 10), 1); g.fillRect(Math.round(cx + 10), Math.round(cy), Math.round(r - 10), 1);
+    g.fillRect(Math.round(cx), Math.round(cy + 10), 1, Math.round(r - 10)); g.fillRect(Math.round(cx), Math.round(cy - r * 0.5), 1, Math.round(r * 0.5 - 10));
+    g.fillRect(Math.round(cx - r), Math.round(cy - 1), Math.round(r * 0.35), 3); g.fillRect(Math.round(cx + r * 0.65), Math.round(cy - 1), Math.round(r * 0.35), 3);
+    g.fillRect(Math.round(cx - 1), Math.round(cy + r * 0.65), 3, Math.round(r * 0.35));
+    for (let i = 1; i <= 4; i++) { const d = Math.round(i * r * 0.12); g.fillRect(Math.round(cx + d - 1), Math.round(cy - 2), 2, 5); g.fillRect(Math.round(cx - d - 1), Math.round(cy - 2), 2, 5); g.fillRect(Math.round(cx - 2), Math.round(cy + d - 1), 5, 2); }
+    g.shadowOffsetX = 0; g.shadowOffsetY = 0;
+    g.fillStyle = '#ff3a2a'; g.fillRect(Math.round(cx) - 1, Math.round(cy) - 1, 2, 2);
+    // charge ring
+    if (this.charge > 0.01) {
+      g.strokeStyle = this.charge >= 0.99 ? '#ffffff' : '#5ac8ff';
+      g.lineWidth = 3;
+      g.beginPath(); g.arc(cx, cy, r - 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * this.charge); g.stroke();
+      g.font = "10px 'Press Start 2P', monospace"; g.textAlign = 'center'; g.fillStyle = g.strokeStyle;
+      g.fillText(this.charge >= 0.99 ? 'FULL CHARGE' : Math.round(this.charge * 100) + '%', cx, Math.round(cy + r * 0.42));
+    }
+    g.restore();
+  }
+
   hitmarker(kill: boolean, head: boolean) {
     this.hitT = 0;
     this.hitKill = kill || (this.hitKill && this.hitT < C.HITMARKER_DURATION * 2.5);
@@ -313,15 +352,26 @@ export class Hud {
     this.vm.draw(g, W, H, dt, {
       bobT: bob.t, bobAmt: bob.amt, land: bob.land, sliding: bob.sliding,
       dashing: !!mo.dashing, airborne: !!mo.airborne, lookDX: mo.lookDX ?? 0, lookDY: mo.lookDY ?? 0,
-      sprinting: !!mo.sprinting, crouching: !!mo.crouching,
+      sprinting: !!mo.sprinting, crouching: !!mo.crouching, ads: this.ads,
     });
     mo.lookDX = 0; mo.lookDY = 0;
 
-    // ── crosshair
+    // ── crosshair / sights
     const cx = Math.round(W / 2), cy = Math.round(H / 2);
+    const ads = this.ads;
+    if (this.weapon === 'lance' && ads > 0.05) this.drawScope(g, W, H, ads);
     g.fillStyle = 'rgba(255,255,255,0.85)';
-    if (this.weapon === 'breacher') {
-      const r = 10;
+    if (this.weapon === 'pulse' && ads > 0.5) {
+      // holographic red-dot
+      const r = 7;
+      g.fillStyle = 'rgba(255,60,40,0.9)';
+      for (let k = 0; k < 24; k++) { const t = (k / 24) * Math.PI * 2; if (k % 6 === 0) continue; g.fillRect(Math.round(cx + Math.cos(t) * r), Math.round(cy + Math.sin(t) * r), 1, 1); }
+      g.fillStyle = '#ff2a1a'; g.fillRect(cx - 1, cy - 1, 2, 2);
+      g.fillStyle = 'rgba(255,120,90,0.35)'; g.fillRect(cx - 2, cy - 2, 4, 4);
+    } else if (this.weapon === 'lance' && ads > 0.6) {
+      // the scope draws its own reticle
+    } else if (this.weapon === 'breacher') {
+      const r = Math.round(10 - ads * 4);
       for (let a = 0; a < 16; a++) { const t = (a / 16) * Math.PI * 2; g.fillRect(Math.round(cx + Math.cos(t) * r), Math.round(cy + Math.sin(t) * r), 1, 1); }
       g.fillRect(cx, cy, 1, 1);
     } else if (this.weapon === 'ripper') {
