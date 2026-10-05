@@ -250,6 +250,8 @@ Every voice in ROUGED is **synthetic**: a speech engine shaped differently for e
 
 **Movement:** sprint into a crouch for a power slide, jump out of it to keep the speed (slide-hopping), dash-jump to carry the burst. Jumps have coyote time and buffering; release jump early for a short hop. Firing drops you out of sprint instantly. On touch, push the move stick to the rim to sprint.
 
+**Coming from VALORANT?** In **Settings → Import Valorant Sensitivity**, enter your sens and scoped multiplier. ROUGED converts it to the exact same cm/360 (VALORANT 0.07°/count → ROUGED 0.0022 rad/count, so ×0.5553), reads raw mouse counts, and can match VALORANT's 103° FOV. The settings screen shows your cm/360 for any DPI.
+
 **Pro mode** (Chrome or Edge, **Controls → Enable Pro Features**, over USB or Bluetooth) adds:
 - **Adaptive triggers** that change per weapon: PULSE chatters, BREACHER has a hammer break, LANCE gets tighter as it charges, RIPPER growls.
 - A **lightbar** that shows your health and flashes on kills.

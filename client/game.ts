@@ -1105,7 +1105,7 @@ export class Game {
       const look = inp.consumeLook();
       this.lookDX = look.dx; this.lookDY = look.dy;
       if (w.lookLockT <= 0) {
-        const sensK = 1 / Math.pow(w.zoom, 0.85); // scoped = slower look
+        const sensK = w.zoom > 1.001 ? w.adsMult / w.zoom : 1; // scoped: scaled by zoom × multiplier (Valorant-style)
         lp.yaw -= look.dx * sensK;
         lp.pitch = Math.max(-1.45, Math.min(1.45, lp.pitch - look.dy * sensK));
         this.aimAssist(dt);

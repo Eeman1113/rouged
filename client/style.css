@@ -262,3 +262,4 @@ body.touch #h-powerups { bottom: 250px; }
 .cine { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(820px, 90vw); font-family: var(--vt); font-size: clamp(20px, 2.6vw, 30px); color: var(--term); text-shadow: 0 0 8px #0f6; text-align: left; white-space: pre-wrap; pointer-events: none; background: rgba(0,0,0,.82); padding: 22px 26px; border: 1px solid #1a4a1a; }
 .cine .h { color: #cfe; }
 .cine .s { color: #e9e2d0; opacity: .8; }
+.field input[type=range], input[type=checkbox] { accent-color: #c4161c; }

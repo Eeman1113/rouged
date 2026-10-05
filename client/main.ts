@@ -15,6 +15,7 @@ import { DEATH_TITLES, FRAGMENTS, REVEAL_SCRIPT, EXTRACT_SCRIPT, SYNERGY_LORE, E
 import { SYNERGIES } from '../shared/powerupDefs';
 import { handlerLine } from './story/handlerLines';
 import { esc } from './hud/killfeed';
+import { valorantToRouged, rougedToValorant, cmPer360, VALORANT_VFOV } from './sensitivity';
 import { BTN, DualSenseHID } from './gamepad';
 
 type Mode = 'title' | 'hub' | 'run' | 'death' | 'reveal' | 'lobby';
@@ -659,8 +660,21 @@ class App {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <label class="field">CALLSIGN<input id="s-name" maxlength="16" value="${esc(this.meta.name)}"/></label>
         <label class="field">QUALITY<select id="s-q"><option value="high" ${s.quality === 'high' ? 'selected' : ''}>HIGH (480p + BLOOM)</option><option value="low" ${s.quality === 'low' ? 'selected' : ''}>LOW</option></select></label>
-        <label class="field">SENSITIVITY <span id="v-sens">${s.sensitivity.toFixed(2)}</span><input id="s-sens" type="range" min="0.2" max="3" step="0.05" value="${s.sensitivity}"/></label>
-        <label class="field">FOV <span id="v-fov">${s.fov}</span><input id="s-fov" type="range" min="70" max="115" step="1" value="${s.fov}"/></label>
+        <label class="field">SENSITIVITY <span id="v-sens">${s.sensitivity.toFixed(3)} · VALO ${rougedToValorant(s.sensitivity).toFixed(3)}</span><input id="s-sens" type="range" min="0.05" max="3" step="any" value="${s.sensitivity}"/></label>
+        <label class="field">FOV (VERTICAL) <span id="v-fov">${s.fov.toFixed(1)}</span><input id="s-fov" type="range" min="60" max="115" step="any" value="${s.fov}"/></label>
+        <label class="field">SCOPED SENS MULTIPLIER <span id="v-ads">${(s.adsMult ?? 1).toFixed(2)}</span><input id="s-ads" type="range" min="0.2" max="2" step="0.01" value="${s.adsMult ?? 1}"/></label>
+        <label class="field">MOUSE DPI (FOR CM/360) <span id="v-cm">${cmPer360(s.sensitivity, s.dpi ?? 800).toFixed(1)} CM/360</span><input id="s-dpi" type="number" min="100" max="32000" step="50" value="${s.dpi ?? 800}"/></label>
+      </div>
+      <h3>IMPORT VALORANT SENSITIVITY</h3>
+      <p style="margin:0 0 8px">Same mouse, same DPI, same cm/360. Copy the numbers from VALORANT → Settings → General → Mouse.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:end">
+        <label class="field">VALORANT SENSITIVITY<input id="v-val" type="number" min="0.01" max="10" step="0.001" placeholder="e.g. 0.35" value="${rougedToValorant(s.sensitivity).toFixed(3)}"/></label>
+        <label class="field">SCOPED MULTIPLIER<input id="v-valads" type="number" min="0.01" max="3" step="0.01" value="${(s.adsMult ?? 1).toFixed(2)}"/></label>
+        <label class="field" style="flex-direction:row;align-items:center;gap:8px"><input id="v-valfov" type="checkbox" checked style="width:18px;height:18px"/>MATCH VALORANT FOV (103°)</label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn" id="b-valo">IMPORT</button></div>
+      <p id="v-valmsg" class="hint" style="text-align:left;margin-top:6px"></p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <label class="field">MASTER<input id="s-master" type="range" min="0" max="1" step="0.05" value="${s.master}"/></label>
         <label class="field">MUSIC<input id="s-music" type="range" min="0" max="1" step="0.05" value="${s.music}"/></label>
         <label class="field">SFX<input id="s-sfx" type="range" min="0" max="1" step="0.05" value="${s.sfx}"/></label>
@@ -680,13 +694,32 @@ class App {
       </div>
       <div style="margin-top:16px" class="row"><button class="btn primary" id="b-save" data-back>SAVE</button><button class="btn" id="b-reset">ERASE PROGRESS</button></div></div>`);
     const q = <T extends HTMLElement>(id: string) => d.querySelector('#' + id) as T;
-    q<HTMLInputElement>('s-sens').oninput = (e) => { q('v-sens').textContent = Number((e.target as HTMLInputElement).value).toFixed(2); };
-    q<HTMLInputElement>('s-fov').oninput = (e) => { q('v-fov').textContent = (e.target as HTMLInputElement).value; };
+    const refreshCm = () => { q('v-cm').textContent = cmPer360(Number(q<HTMLInputElement>('s-sens').value), Number(q<HTMLInputElement>('s-dpi').value) || 800).toFixed(1) + ' CM/360'; };
+    q<HTMLInputElement>('s-sens').oninput = (e) => { const v = Number((e.target as HTMLInputElement).value); q('v-sens').textContent = `${v.toFixed(3)} · VALO ${rougedToValorant(v).toFixed(3)}`; refreshCm(); };
+    q<HTMLInputElement>('s-fov').oninput = (e) => { q('v-fov').textContent = Number((e.target as HTMLInputElement).value).toFixed(1); };
+    q<HTMLInputElement>('s-ads').oninput = (e) => { q('v-ads').textContent = Number((e.target as HTMLInputElement).value).toFixed(2); };
+    q<HTMLInputElement>('s-dpi').oninput = refreshCm;
+    q('b-valo').onclick = () => {
+      const val = Number(q<HTMLInputElement>('v-val').value);
+      if (!(val > 0 && val < 20)) { q('v-valmsg').textContent = 'Enter your VALORANT sensitivity (e.g. 0.35).'; return; }
+      const sens = valorantToRouged(val);
+      const sensEl = q<HTMLInputElement>('s-sens');
+      sensEl.min = String(Math.min(Number(sensEl.min), sens)); sensEl.max = String(Math.max(Number(sensEl.max), sens));
+      sensEl.value = String(sens); sensEl.dispatchEvent(new Event('input'));
+      const ads = Number(q<HTMLInputElement>('v-valads').value) || 1;
+      q<HTMLInputElement>('s-ads').value = String(ads); q<HTMLInputElement>('s-ads').dispatchEvent(new Event('input'));
+      if (q<HTMLInputElement>('v-valfov').checked) { q<HTMLInputElement>('s-fov').value = String(VALORANT_VFOV); q<HTMLInputElement>('s-fov').dispatchEvent(new Event('input')); }
+      const dpi = Number(q<HTMLInputElement>('s-dpi').value) || 800;
+      q('v-valmsg').textContent = `Imported: VALORANT ${val} → ROUGED ${sens.toFixed(4)} (${cmPer360(sens, dpi).toFixed(1)} cm/360 at ${dpi} DPI). Press SAVE.`;
+      sfx.uiClick();
+    };
     q('b-save').onclick = () => {
       this.meta.name = (q<HTMLInputElement>('s-name').value.trim().toUpperCase() || 'CANDIDATE').slice(0, 16);
       s.quality = q<HTMLSelectElement>('s-q').value as 'high' | 'low';
       s.sensitivity = Number(q<HTMLInputElement>('s-sens').value);
       s.fov = Number(q<HTMLInputElement>('s-fov').value);
+      s.adsMult = Number(q<HTMLInputElement>('s-ads').value) || 1;
+      s.dpi = Number(q<HTMLInputElement>('s-dpi').value) || 800;
       s.master = Number(q<HTMLInputElement>('s-master').value);
       s.music = Number(q<HTMLInputElement>('s-music').value);
       s.sfx = Number(q<HTMLInputElement>('s-sfx').value);

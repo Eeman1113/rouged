@@ -51,6 +51,7 @@ export class World {
   lookTarget: THREE.Vector3 | null = null;
   /** aim-down-sights zoom factor (1 = none) */
   zoom = 1;
+  adsMult = 1;
   wardenName = 'WARDEN';
   depth = 1;
   /** silence mutator: the Handler is cut off */
@@ -81,6 +82,7 @@ export class World {
     this.meta = m;
     const s = m.settings;
     this.input.sensitivity = s.sensitivity;
+    this.adsMult = s.adsMult ?? 1;
     this.input.invertY = s.invertY;
     this.input.padSens = s.padSens;
     this.input.sprintToggle = s.sprintToggle;

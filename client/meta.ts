@@ -21,6 +21,9 @@ export interface Settings {
   gyroSens: number;
   serverUrl: string;
   sprintToggle: boolean;
+  /** scoped sensitivity multiplier (Valorant semantics: 1 = scaled exactly by zoom) */
+  adsMult: number;
+  dpi: number;
 }
 
 export interface Meta {
@@ -55,7 +58,7 @@ export function defaultMeta(): Meta {
   return {
     v: 1, name: 'CANDIDATE', xp: 0, runCount: 0, deaths: 0, victories: 0, cores: 0, fragments: [], bestScore: 0, bestRooms: 0, bestCombo: 1,
     totalKills: 0, synergies: [], enemiesSeen: [], legendariesSeen: 0, replica: null, difficulty: 'normal', revealSeen: false, trueEndingSeen: false, extractions: 0, deepest: 0, lastSeed: '',
-    settings: { sensitivity: 1, invertY: false, master: 0.9, music: 0.7, sfx: 0.9, voice: true, fov: 95, shake: 1, quality: 'high', padSens: 1, aimAssist: 0.6, rumble: 1, triggers: true, gyro: 'l2', gyroSens: 1.2, serverUrl: '', sprintToggle: false },
+    settings: { sensitivity: 1, invertY: false, master: 0.9, music: 0.7, sfx: 0.9, voice: true, fov: 95, shake: 1, quality: 'high', padSens: 1, aimAssist: 0.6, rumble: 1, triggers: true, gyro: 'l2', gyroSens: 1.2, serverUrl: '', sprintToggle: false, adsMult: 1, dpi: 800 },
   };
 }
 
