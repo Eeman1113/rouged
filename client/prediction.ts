@@ -121,9 +121,14 @@ export class LocalPlayer {
       for (const b of this.dynamicBoxes) {
         const r = C.PLAYER_RADIUS;
         if (s.x + r <= b.x0 || s.x - r >= b.x1 || s.z + r <= b.z0 || s.z - r >= b.z1 || s.y >= b.y1 || s.y + C.PLAYER_HEIGHT <= b.y0) continue;
+        // try exits shortest-first, but never into level geometry (a boss must not shove you through a wall)
         const pushes = [b.x0 - r - s.x, b.x1 + r - s.x, b.z0 - r - s.z, b.z1 + r - s.z];
-        let best = 0; for (let i = 1; i < 4; i++) if (Math.abs(pushes[i]) < Math.abs(pushes[best])) best = i;
-        if (best < 2) s.x += pushes[best] * 1.001; else s.z += pushes[best] * 1.001;
+        const order = [0, 1, 2, 3].sort((i, j) => Math.abs(pushes[i]) - Math.abs(pushes[j]));
+        for (const i of order) {
+          const nx = i < 2 ? s.x + pushes[i] * 1.001 : s.x, nz = i < 2 ? s.z : s.z + pushes[i] * 1.001;
+          const blocked = this.boxes.some((w) => nx + r > w.x0 && nx - r < w.x1 && nz + r > w.z0 && nz - r < w.z1 && s.y < w.y1 && s.y + C.PLAYER_HEIGHT > w.y0);
+          if (!blocked) { s.x = nx; s.z = nz; break; }
+        }
       }
       const solids = this.dynamicBoxes.length ? this.boxes.concat(this.dynamicBoxes) : this.boxes;
       const ev = stepPlayer(s, { fwd: inp.fwd, right: inp.right, jump: inp.jump, dash: this.dashQueued, crouch: inp.crouch, yaw: this.yaw, sprint }, this.params, solids, C.PHYSICS_DT);

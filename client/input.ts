@@ -48,6 +48,9 @@ export class Input {
   private padMoveY = 0;
   private lastKbm = 0;
   stickY = 0;
+  /** programmatic analog movement (the /test autopilot), added to the keyboard/pad axes */
+  botFwd = 0;
+  botRight = 0;
   /** keyboard sprint mode: false = hold Shift, true = tap Shift to toggle (auto-cancels when you stop) */
   sprintToggle = false;
 
@@ -130,6 +133,7 @@ export class Input {
     if (this.held.has('left')) r -= 1;
     if (this.touchMode) { f += -this.stickY; r += this.stickX; }
     f += -this.padMoveY; r += this.padMoveX;
+    f += this.botFwd; r += this.botRight;
     return { fwd: Math.max(-1, Math.min(1, f)), right: Math.max(-1, Math.min(1, r)) };
   }
 

@@ -80,6 +80,55 @@ export const BIOME_INFO: { name: string; subtitle: string; intro: string[] }[] =
 // ---------------------------------------------------------------- fragments (deep sectors, Mara, the Broker)
 
 export const EXTRA_FRAGMENTS: Fragment[] = [
+  // ---- THE HAPPY PLACE (the mailbox on Maple Row)
+  {
+    id: 'h01_suburb',
+    title: 'MEMORY ASSET 0001-H: SUBURB (RECONSTRUCTED)',
+    kind: 'scan',
+    minRun: 0,
+    place: 'happy',
+    text: `SOURCE: NST DONOR 0001, CHILDHOOD (AGES 6–14). FIDELITY: 61%.
+GAPS FILLED FROM: STOCK SUBURB PACKAGE 3 ("MAPLE ROW").
+PURPOSE: CALMING ENVIRONMENT. SUBJECT COMPLIANCE +22% AFTER EXPOSURE.
+KNOWN ISSUES: cloud set loops every 19s. rear elevations not rendered.
+asset corrupts on load (65%). cause: the street conflicts with the war.
+DO NOT LET THE SUBJECT REACH THE END OF THE STREET.`,
+  },
+  {
+    id: 'h02_window',
+    title: 'MEMORY // HER WINDOW',
+    kind: 'personal',
+    minRun: 2,
+    place: 'happy',
+    text: `Wren kept a lamp on because she was afraid of the dark and too proud to say so.
+I'd see it from the end of the street, walking home late.
+One light on the whole block. That was how I knew which house was ours.
+They kept that. Out of everything, they kept that.`,
+  },
+  {
+    id: 'h03_handler_note',
+    title: 'HANDLER // NOTE ON ASSET 0001-H',
+    kind: 'handler',
+    minRun: 6,
+    place: 'happy',
+    text: `They asked me to build you somewhere calm. I didn't have enough of you to build it right.
+So I used what I had: one street, one summer, one window.
+The rest I borrowed. The houses past the hedges are all the same house. I'm sorry.
+One window won't go dark when it breaks. I didn't write that. I'm leaving it.
+If it holds, rest. If it doesn't, it isn't you. It's never been you.`,
+  },
+  {
+    id: 'h04_letter',
+    title: 'MAILBOX // 14 MAPLE ROW',
+    kind: 'personal',
+    minRun: 14,
+    place: 'happy',
+    text: `Dear superhero. Mom says you can't write back from where you are. I'm writing anyway.
+The swing squeaks now. I'm leaving it so you can fix it.
+I kept the cape. It still smells like toast.
+Come back even if you die. You promised.
+— W.`,
+  },
   // ---- THE NURSERY (biome 3)
   {
     id: 'n01_body_0001',
@@ -899,3 +948,22 @@ export const EXTRA_LATE_NOTES: string[] = [
   'The window is still painted. It is open anyway.',
   'An empty vat label leans against the wall: 0001. Someone has written "home?" under it, and then crossed out the question mark.',
 ];
+
+// ---------------------------------------------------------------- THE HAPPY PLACE
+
+/** Wren, somewhere in the yard. Floating text by the swing. */
+export const WREN_WHISPERS: { minRun: number; text: string }[] = [
+  { minRun: 0, text: 'push me higher!' },
+  { minRun: 0, text: "you're late for dinner" },
+  { minRun: 1, text: 'come home' },
+  { minRun: 3, text: 'is that you?' },
+  { minRun: 6, text: 'you promised' },
+  { minRun: 10, text: 'even if you die' },
+  { minRun: 16, text: "it's seven miles away. it can't get us." },
+  { minRun: 26, text: 'I kept the cape' },
+];
+
+export function wrenWhisper(runCount: number, rnd: () => number = Math.random): string {
+  const pool = WREN_WHISPERS.filter((w) => w.minRun <= runCount);
+  return (pool[Math.floor(rnd() * pool.length)] ?? WREN_WHISPERS[0]).text;
+}

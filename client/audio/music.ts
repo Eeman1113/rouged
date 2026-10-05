@@ -26,7 +26,7 @@
 import { audio } from './engine';
 import * as S from './synth';
 
-type BiomeId = number | 'hub';
+type BiomeId = number | 'hub' | 'happy';
 type Layer = 'combat' | 'aggression' | 'rampage' | 'boss';
 const LAYERS: readonly Layer[] = ['combat', 'aggression', 'rampage', 'boss'];
 type Color = 'anvil' | 'arp' | 'heart' | 'musicbox' | 'tribal' | 'march' | 'glitch' | 'none';
@@ -46,6 +46,8 @@ interface BiomeDef {
   leadType: OscillatorType;
   swing: number;
   hub?: boolean;
+  /** hub-style ambient with a music-box melody on top (THE HAPPY PLACE) */
+  sparkle?: boolean;
 }
 
 const MINOR = [0, 2, 3, 5, 7, 8, 10];
@@ -53,6 +55,7 @@ const PHRYGIAN = [0, 1, 3, 5, 7, 8, 10];
 const HARM_MINOR = [0, 2, 3, 5, 7, 8, 11];
 const DORIAN = [0, 2, 3, 5, 7, 9, 10];
 const LOCRIAN = [0, 1, 3, 5, 6, 8, 10];
+const MAJOR = [0, 2, 4, 5, 7, 9, 11];
 
 /*
  * Riff notation (16 chars per bar): lowercase = palm-muted chug, uppercase = open
@@ -120,6 +123,12 @@ const BIOMES: Record<string, BiomeDef> = {
     bpm: 72, root: 38, scale: MINOR, prog: [0, 5, 3, 4],
     riff: '.'.repeat(32), riffAgg: '.'.repeat(32), breakdown: '.'.repeat(32),
     padType: 'triangle', padCut: 1100, drive: 4, color: 'none', leadType: 'sine', swing: 0, hub: true,
+  },
+  // THE HAPPY PLACE: F major, I–IV–vi–V, a music box that is only slightly wrong
+  happy: {
+    bpm: 84, root: 41, scale: MAJOR, prog: [0, 3, 5, 4],
+    riff: '.'.repeat(32), riffAgg: '.'.repeat(32), breakdown: '.'.repeat(32),
+    padType: 'triangle', padCut: 2600, drive: 3, color: 'none', leadType: 'sine', swing: 0, hub: true, sparkle: true,
   },
 };
 
@@ -517,7 +526,7 @@ class MusicSystem {
         return;
       }
       const now = this.ctx.currentTime;
-      const hubSwap = b === 'hub' || this.biomeId === 'hub';
+      const hubSwap = !!BIOMES[String(b)]?.hub || !!BIOMES[String(this.biomeId)]?.hub;
       if (!this.playing || hubSwap || this.needsReentry || this.dead) {
         this.pendingBiome = null;
         this.applyBiome(b, now, this.playing);
@@ -1218,6 +1227,17 @@ class MusicSystem {
       }
       this.osc(this.padFilter, 'sine', hz(D.root + this.scaleNote(deg) - 12), t, 1.5, barLen * 2 - 1.5, 1.5, 0.1);
     }
+    if (D.sparkle) {
+      // a music box: the lullaby in a major key, every seventh note a hair flat
+      if (st % 2 === 0 && bar % 4 !== 3) {
+        const i = (bar % 2) * 8 + st / 2;
+        const m = D.root + 36 + this.scaleNote((this.lullaby[i] ?? 0) + deg);
+        const wrong = (bar * 8 + st / 2) % 7 === 6 ? 0.985 : 1;
+        this.oneShot('bell', t, this.padFader, st % 8 === 0 ? 0.075 : 0.05, (hz(m) / 880) * wrong);
+      }
+      if (st === 8 && bar % 2 === 1) this.oneShot('bell', t, this.padFader, 0.03, hz(D.root + 48 + this.scaleNote(deg + 4)) / 880);
+      return;
+    }
     const h = ((bar * 37 + st * 11) >>> 0) % 23;
     if (st % 2 === 0 && (h === 3 || h === 14)) {
       const m = D.root + 36 + this.scaleNote([0, 2, 4, 6, 7][(bar + st) % 5] + deg);
@@ -1713,7 +1733,7 @@ export const music = {
   stop(): void {
     sys()?.stop();
   },
-  setBiome(b: number | 'hub'): void {
+  setBiome(b: number | 'hub' | 'happy'): void {
     sys()?.setBiome(b);
   },
   setLayers(l: { combat: boolean; aggression: boolean; rampage: boolean; boss: boolean }): void {

@@ -129,6 +129,8 @@ export class Run {
   timers: { t: number; fn: () => void }[] = [];
   /** room clear is held until this time (boss death cinematic) */
   holdClearUntil = -1;
+  /** THE HAPPY PLACE: will it hold, and when does it decide */
+  happy: { corrupt: boolean; decideAt: number; decided: boolean } | null = null;
 
   constructor(public host: RunHost, opts: RunOptions) {
     this.id = 'run' + (++RUN_COUNTER) + '_' + Math.floor(Math.random() * 1e6).toString(36);
@@ -287,6 +289,7 @@ export class Run {
     this.timers = [];
     this.holdClearUntil = -1;
     this.trialT = -1;
+    this.happy = null;
     this.mutator = desc.mutator;
     const past = Math.max(0, desc.index - (C.EXTRACT_FROM - 1));
     this.depthHp = 1 + past * C.DEPTH_HP_SCALE;
@@ -343,6 +346,16 @@ export class Run {
         this.cleared = true;
         this.doorsOpenAt = this.time + 0.5;
         for (const p of this.players.values()) { p.shrine = true; p.privDirty = true; }
+        break;
+      }
+      case 'happy': {
+        // calm: sunlight, a heal at Wren's door, three good pedestals. Whether it holds is decided now.
+        this.state = 'reward';
+        this.cleared = true;
+        for (const p of this.players.values()) { p.shrine = true; p.privDirty = true; }
+        this.offerPedestals('rare', 3);
+        const eligible = this.runCount >= 3 || desc.index >= 8;
+        this.happy = { corrupt: eligible && roomRng.chance(0.65), decideAt: this.time + 25, decided: false };
         break;
       }
       case 'arena': {
@@ -518,6 +531,30 @@ export class Run {
     for (const s of newSyn) this.emit({ e: 'synergy', id: p.id, synergy: s });
     this.frenzy = [...this.players.values()].some((pp) => pp.mods.frenzy);
     p.privDirty = true;
+    // the first pick in THE HAPPY PLACE is the moment it decides
+    if (this.happy && !this.happy.decided) this.happy.decideAt = Math.min(this.happy.decideAt, this.time + (this.happy.corrupt ? 1.4 : 0));
+  }
+
+  /** THE HAPPY PLACE holds (doors open), or the memory corrupts and the street turns on you. */
+  happyDecide() {
+    const h = this.happy;
+    if (!h || h.decided) return;
+    h.decided = true;
+    if (!h.corrupt) { this.doorsOpenAt = this.time + 3; return; }
+    const T = 2.2;
+    this.emit({ e: 'memoryCorrupt', t: T });
+    this.state = 'combat';
+    this.cleared = false;
+    const n = Math.max(1, this.players.size);
+    const rng = new Rng(mixSeed(this.room.seed, 0xbad));
+    const plan = composeEnemies(this.room, n, this.runCount, rng, 1.2, [['replica', 2.2], ['wraith', 2.6], ['stalker', 2.6]]);
+    // out of the front doors, the ends of the street, and from behind the house with no back
+    const pts = this.geo.happy?.ambush ?? this.geo.enemySpawns;
+    const off = rng.int(0, pts.length - 1);
+    plan.forEach((sp, i) => {
+      const pt = pts[(off + i) % pts.length];
+      this.spawnQueue.push({ t: this.time + T + 0.3 + i * 0.22, plan: sp, x: pt.x + rng.range(-0.8, 0.8), z: pt.z + rng.range(-0.8, 0.8) });
+    });
   }
 
   openShop() {
@@ -876,6 +913,7 @@ export class Run {
         this.spawnQueue.splice(i, 1);
         const e = this.createEnemy(s.plan.type, s.x, s.z, s.plan.elite);
         e.yaw = Math.atan2(-(0 - e.x), -(this.geo.d / 2 - e.z));
+        if (this.room.kind === 'happy') { e.aware = true; e.target = this.targets()[0] ?? null; e.state = 'engage'; } // an ambush knows where you are
         this.enemies.set(e.id, e);
       }
     }
@@ -926,6 +964,8 @@ export class Run {
         else this.onRoomCleared();
       }
     }
+
+    if (this.happy && !this.happy.decided && this.time >= this.happy.decideAt) this.happyDecide();
 
     if (this.doorsOpenAt >= 0 && this.time >= this.doorsOpenAt) {
       this.doorsOpenAt = -1;

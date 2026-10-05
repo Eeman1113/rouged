@@ -16,7 +16,8 @@ export type HandlerContext =
   | 'biomeEnter' | 'hubIdle' | 'idle' | 'levelUp' | 'victory' | 'coopJoin' | 'allyDown' | 'corpseRoom'
   | 'shopEnter' | 'shopBuy' | 'sanctuaryEnter' | 'trialEnter' | 'trialWin' | 'trialFail' | 'mutator'
   | 'extractChoice' | 'extract' | 'deeper' | 'depthEnter' | 'handlerBoss' | 'handlerBossPhase'
-  | 'handlerBossDeath' | 'endless' | 'leech' | 'bomber' | 'scrap';
+  | 'handlerBossDeath' | 'endless' | 'leech' | 'bomber' | 'scrap'
+  | 'happyEnter' | 'happyCorrupt' | 'happyHold';
 
 type Phase = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 type PhaseLines = Partial<Record<Phase, string[]>>;
@@ -417,8 +418,64 @@ export function biomeLine(biome: number, runCount: number): string {
   return '';
 }
 
+// THE HAPPY PLACE: the Handler is gentle here. A little too gentle.
+const HAPPY_LINES: Record<'happyEnter' | 'happyCorrupt' | 'happyHold', PhaseLines> = {
+  happyEnter: {
+    0: [
+      "Calming environment loaded. Memory asset zero zero zero one H. Breathe, candidate.",
+      "A reward environment. Sunlight, nominal. Take your time. Take all of it.",
+      "Recreation asset. Your vitals are improving already. Good. Very good. Stay calm.",
+    ],
+    1: [
+      "This is a nice one. The board made it for you. I... helped. Rest.",
+      "Sunlight. You've earned sunlight. Don't look at the clouds for too long.",
+      "Your street. Or a street. Close enough to calm you. That's the point of it.",
+    ],
+    2: [
+      "You know this street. Don't you. Don't answer. Just rest here a while.",
+      "The lamp in that window. You always look at it first. Every single time.",
+      "It's alright. Nothing here can hurt you. That's true. For now, that's true.",
+    ],
+    3: [
+      "I built this out of the parts of you I have. It isn't enough. It's what I have.",
+      "Your street. Sixty-one percent of it. The rest is a stock package. I'm sorry about the clouds.",
+      "Rest. Please. Before they notice you're happy.",
+    ],
+    4: [
+      "Sit on the porch. Let the sun do something. I know it isn't real. Sit anyway.",
+      "Her window's lit. It's always lit. I couldn't make it go out. I tried, once. I'm glad it didn't.",
+      "Stay as long as it lets you.",
+    ],
+    5: ["The street. One more time before the bottom. Look at all of it.", "Rest. You'll want to remember this when you get there."],
+    6: [
+      "Hello, street. Hello, window. We're back.",
+      "Sun's out. It's always out, here. I never learned weather.",
+      "Go on. Knock. She won't answer. Knock anyway.",
+    ],
+  },
+  happyCorrupt: {
+    0: ["Environment integrity compromised. Hostiles inbound. Do not panic.", "Memory asset failing. Combat protocol resumes. This is... expected."],
+    1: ["No. No, no, it's breaking. Weapons up.", "The memory won't hold. They never hold. Fight."],
+    2: ["[g] They found it. They always find the happy ones.", "It's turning. Don't look at the sky. Look at them."],
+    3: [
+      "The war's coming in through the front doors. It always does. I can't stop it.",
+      "[other]Compliance window closed.[/other] I'm sorry. I'm so sorry. Fight.",
+    ],
+    4: ["Of course. Of course they wouldn't let you keep it.", "Her window's still lit. Hold onto that. Now fight."],
+    5: ["Not here. Not now. Fight for it.", "Even this. Fine. Take it back from them."],
+    6: ["There it goes. Every time. Come on. We'll take the street back.", "They always come for the street. Teach them not to."],
+  },
+  happyHold: {
+    0: ["Session complete. Exits unlocked. You may stay longer. You may not.", "Recovery complete. Doors are open."],
+    2: ["It held. It held this time. Go, before it remembers.", "Doors are open. You don't have to leave yet. You do. But you don't have to want to."],
+    4: ["It held. I don't know why it holds, sometimes.", "Go on. The street will be here. That's the one promise I can keep."],
+    6: ["It held. Lucky us. Doors are open.", "Doors are open. Wave goodbye to the window."],
+  },
+};
+
 const LINES: Record<HandlerContext, PhaseLines> = {
   ...DEEP_LINES,
+  ...HAPPY_LINES,
 
   runStart: {
     0: [

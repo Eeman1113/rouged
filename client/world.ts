@@ -63,6 +63,7 @@ export class World {
     const hud2d = document.getElementById('hud2d') as HTMLCanvasElement;
     this.r = new SceneRenderer(gl);
     this.map = new MapView(this.r.scene);
+    this.map.r = this.r;
     this.ents = new EntityViews(this.r.scene);
     this.gore = new Gore(this.r.scene);
     this.fx = new Effects(this.r.scene);
@@ -121,6 +122,8 @@ export class World {
     this.r.setFog(fogColor, geo.fog);
     this.r.setAmbient(L.ambient, 0x080404, geo.desc.kind === 'hub' ? 1.1 : geo.desc.mutator === 'darkness' ? 0.25 : 0.85);
     this.ents.ambient *= geo.desc.mutator === 'darkness' ? 0.35 : 1;
+    // THE HAPPY PLACE owns its own fog / sky light (MapView.happy writes them every frame)
+    if (geo.desc.kind === 'happy') { this.r.setFog(0xbcd6ec, geo.fog); this.r.setAmbient(0xbcdcff, 0x6a8a48, 1.05); }
   }
 
   setOpenDoors(open: Set<number>) {

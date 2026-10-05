@@ -9,6 +9,9 @@ import {
   getHubTexture, getMirrorTexture, getBodySprite, Biome, getFoliageSprite, getVendorSprite, getShrineSprite,
 } from './sprites';
 import { tex, textCanvas } from './tex';
+import { HappyScene } from './happy';
+import type { SceneRenderer } from './scene';
+import { getHappyTexture } from './sprites';
 
 const TILE = 2; // meters per texture repeat
 
@@ -25,11 +28,13 @@ export interface DoorView {
   light: THREE.PointLight;
 }
 
-const DOOR_COLORS: Record<DoorKind, number> = { standard: 0x3b8cff, elite: 0xff2a2a, unknown: 0xffc83b, corrupted: 0x6dff5a, extract: 0xffffff, shop: 0x2affd0, sanctuary: 0xfff0b0, trial: 0xb44cff };
-const DOOR_LABEL: Record<DoorKind, string> = { standard: 'STANDARD', elite: 'ELITE', unknown: '???', corrupted: 'C0RRUPT3D', extract: '>> EXTRACT <<', shop: 'THE BROKER', sanctuary: 'SANCTUARY', trial: 'TRIAL' };
-const KIND_LABEL: Record<RoomKind, string> = { combat: 'COMBAT', arena: 'ARENA', gauntlet: 'GAUNTLET', anomaly: 'ANOMALY', boss: '!! WARDEN !!', hub: 'WAKE UP', shop: 'TRADE SCRAP', sanctuary: 'REST', trial: 'LEGENDARY REWARD' };
+const DOOR_COLORS: Record<DoorKind, number> = { standard: 0x3b8cff, elite: 0xff2a2a, unknown: 0xffc83b, corrupted: 0x6dff5a, extract: 0xffffff, shop: 0x2affd0, sanctuary: 0xfff0b0, trial: 0xb44cff, memory: 0xffa2b4 };
+const DOOR_LABEL: Record<DoorKind, string> = { standard: 'STANDARD', elite: 'ELITE', unknown: '???', corrupted: 'C0RRUPT3D', extract: '>> EXTRACT <<', shop: 'THE BROKER', sanctuary: 'SANCTUARY', trial: 'TRIAL', memory: 'THE HAPPY PLACE' };
+const KIND_LABEL: Record<RoomKind, string> = { combat: 'COMBAT', arena: 'ARENA', gauntlet: 'GAUNTLET', anomaly: 'ANOMALY', boss: '!! WARDEN !!', hub: 'WAKE UP', shop: 'TRADE SCRAP', sanctuary: 'REST', trial: 'LEGENDARY REWARD', happy: 'MEMORY' };
 /** door art only exists for four kinds: map the rest */
-const DOOR_TEX: Record<DoorKind, 'standard' | 'elite' | 'unknown' | 'corrupted'> = { standard: 'standard', elite: 'elite', unknown: 'unknown', corrupted: 'corrupted', extract: 'corrupted', shop: 'unknown', sanctuary: 'standard', trial: 'elite' };
+const DOOR_TEX: Record<DoorKind, 'standard' | 'elite' | 'unknown' | 'corrupted'> = { standard: 'standard', elite: 'elite', unknown: 'unknown', corrupted: 'corrupted', extract: 'corrupted', shop: 'unknown', sanctuary: 'standard', trial: 'elite', memory: 'unknown' };
+/** the memory door's label is gold over its pink glow */
+const LABEL_COLOR: Partial<Record<DoorKind, number>> = { memory: 0xffd47a };
 
 interface Weather { points: THREE.Points; vel: Float32Array; kind: number; box: { x: number; z: number; h: number } }
 
@@ -86,6 +91,10 @@ export class MapView {
   shrine: THREE.Sprite | null = null;
   shrineLight: THREE.PointLight | null = null;
   weather: Weather | null = null;
+  /** THE HAPPY PLACE (only while that room is loaded) */
+  happy: HappyScene | null = null;
+  /** set by World: the happy place needs the renderer (shadows, fog, ambient, camera) */
+  r: SceneRenderer | null = null;
 
   constructor(private scene: THREE.Scene) {
     scene.add(this.group);
@@ -98,6 +107,7 @@ export class MapView {
   }
 
   clear() {
+    if (this.happy) { this.happy.dispose(); this.happy = null; }
     this.group.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();
@@ -138,7 +148,9 @@ export class MapView {
       anomaly: { boxes: [], mat: new THREE.MeshLambertMaterial({ map: tex(getWallTexture(biome, 2), true), color: 0x99ff99, emissive: 0x0a3a0a }) },
       alcove: { boxes: [], mat: lambert(wallTex, 0x8a8a8a) },
     };
+    const happy = geo.desc.kind === 'happy' && !!geo.happy && !!this.r;
     for (const b of geo.boxes) {
+      if (happy) continue; // the street draws itself
       if (b.mat === 'wall' || b.mat === 'pillar') groups['wall' + Math.min(2, b.tex ?? 0)].boxes.push(b);
       else if (b.mat === 'crate') groups.crate.boxes.push(b);
       else if (b.mat === 'platform') groups.platform.boxes.push(b);
@@ -155,8 +167,13 @@ export class MapView {
       }
     }
 
+    if (happy) {
+      this.happy = new HappyScene(this.group, this.r!, geo, geo.boxes.filter((b) => b.mat === 'alcove'));
+      this.fixtures = this.happy.lampHeads;
+    }
     // floor + ceiling
     const pad = 6;
+    if (!happy) {
     const fw = geo.w + pad * 2, fd = geo.d + pad * 2;
     const floorTex = tex(hub ? getHubTexture('floor') : getFloorTexture(biome), true).clone();
     floorTex.repeat.set(fw / TILE, fd / TILE);
@@ -171,6 +188,7 @@ export class MapView {
     ceil.rotation.x = Math.PI / 2;
     ceil.position.y = geo.h;
     this.group.add(ceil);
+    }
 
     // lights + fixtures
     geo.lights.slice(0, this.roomLights.length).forEach((l, i) => {
@@ -179,6 +197,7 @@ export class MapView {
       pl.intensity = l.intensity;
       pl.distance = l.range;
       pl.position.set(l.x, l.y, l.z);
+      if (happy) return; // the lamp posts are the fixtures
       const fx = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.15, 0.5), new THREE.MeshBasicMaterial({ color: new THREE.Color(l.color).multiplyScalar(3) }));
       fx.position.set(l.x, geo.h - 0.08, l.z);
       this.group.add(fx);
@@ -200,7 +219,7 @@ export class MapView {
       glow.position.set(ds.x + ds.nx * 0.05, p.y1 + 0.35, ds.z + ds.nz * 0.05);
       this.group.add(glow);
       const nextLbl = ds.entry ? '' : `${DOOR_LABEL[kind]}\n${geo.desc.kind === 'hub' ? 'DEPLOY' : kind === 'extract' ? 'END THE RUN' : KIND_LABEL[ds.nextKind]}${ds.mutator ? '\n⚠ ' + MUTATOR_NAME[ds.mutator] : ''}${geo.desc.kind === 'boss' && kind !== 'extract' && geo.desc.index >= 14 ? '\nGO DEEPER' : ''}`;
-      const lc = textCanvas(nextLbl, '#' + new THREE.Color(color).getHexString(), 22, "'VT323', monospace", '#000');
+      const lc = textCanvas(nextLbl, '#' + new THREE.Color(LABEL_COLOR[kind] ?? color).getHexString(), 22, "'VT323', monospace", '#000');
       const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(lc), transparent: true, depthWrite: false, fog: true }));
       const s = 0.035;
       label.scale.set(lc.width * s, lc.height * s, 1);
@@ -216,7 +235,7 @@ export class MapView {
 
     // decor
     for (const d of geo.decor) this.addDecor(d, geo, opts, biome);
-    if (!hub) this.addWeather(geo);
+    if (!hub && !happy) this.addWeather(geo);
     if (anomaly && opts.corpses) {
       // rooms full of your own corpses
       for (const d of geo.decor.filter((x) => x.kind === 'corpse')) this.addCorpse(d.x, d.z, (d.v ?? 0) % 4);
@@ -288,9 +307,10 @@ export class MapView {
           break;
         }
         if (!opts.whisper) break;
-        const c = textCanvas(opts.whisper, '#7dff7a', 26, "'VT323', monospace", '#2f2');
-        const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(c), transparent: true, color: new THREE.Color(1.8, 1.8, 1.8), depthWrite: false }));
-        s.scale.set(c.width * 0.03, c.height * 0.03, 1);
+        const wren = d.v === 2; // a voice in the yard
+        const c = textCanvas(opts.whisper, wren ? '#ffe9a8' : '#7dff7a', 26, "'VT323', monospace", wren ? '#f90' : '#2f2');
+        const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(c), transparent: true, color: wren ? new THREE.Color(0.95, 0.9, 0.8) : new THREE.Color(1.8, 1.8, 1.8), depthWrite: false }));
+        s.scale.set(c.width * (wren ? 0.022 : 0.03), c.height * (wren ? 0.022 : 0.03), 1);
         s.position.set(d.x, d.y, d.z);
         this.group.add(s);
         this.floaters.push({ obj: s, base: d.y, phase: d.x });
@@ -322,6 +342,17 @@ export class MapView {
         break;
       }
       case 'shrine': {
+        if (d.v === 1) {
+          // Wren's front door: a warm light on the porch instead of a shrine
+          const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(getHappyTexture('glow')), color: new THREE.Color(0.7, 0.5, 0.28), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+          sp.scale.set(2.2, 2.6, 1);
+          sp.position.set(d.x + 0.25, d.y + 1.3, d.z);
+          this.group.add(sp);
+          this.shrine = sp;
+          const l = new THREE.PointLight(0xffd8a0, 6, 6, 1.4); l.position.set(d.x - 0.6, 2.2, d.z); this.group.add(l);
+          this.shrineLight = l;
+          break;
+        }
         const c = getShrineSprite();
         const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(c), transparent: true, alphaTest: 0.4, color: new THREE.Color(1.6, 1.6, 1.6) }));
         sp.scale.set(c.width / 16, c.height / 16, 1);
@@ -424,8 +455,15 @@ export class MapView {
     for (const d of this.doors) if (d.slot >= 0) d.label.visible = on;
   }
 
+  /** THE HAPPY PLACE stops pretending */
+  corruptMemory(t: number) {
+    this.happy?.corrupt(t);
+    this.flickerAmt = 0.7;
+  }
+
   update(dt: number) {
     this.time += dt;
+    this.happy?.update(dt);
     for (const d of this.doors) {
       const target = d.open ? 1 : 0;
       d.t += (target - d.t) * Math.min(1, dt * 4);
@@ -447,7 +485,7 @@ export class MapView {
       a.needsUpdate = true;
     }
     if (this.vendor) { const f = Math.floor(this.time * 2) % 2; (this.vendor.material as THREE.SpriteMaterial).map = tex(getVendorSprite(f)); }
-    if (this.shrineLight) this.shrineLight.intensity = (this.shrine?.visible ? 8 : 0) + Math.sin(this.time * 2) * 2;
+    if (this.shrineLight) this.shrineLight.intensity = (this.shrine?.visible ? (this.happy ? 4 : 8) : 0) + Math.sin(this.time * 2) * (this.happy ? 1 : 2);
     for (const t of this.terminals) {
       t.t += dt;
       if (t.t > 0.12) { t.t = 0; t.frame++; (t.mesh.material as THREE.MeshBasicMaterial).map = tex(getTerminalTexture(t.frame % 8)); }

@@ -4,7 +4,7 @@ import { World } from './world';
 import { Game } from './game';
 import { Hub } from './hub';
 import { LocalTransport, WsTransport, defaultServerUrl, Transport } from './net';
-import { loadMeta, saveMeta, applyRun, metaLevel, Meta } from './meta';
+import { loadMeta, saveMeta, applyRun, metaLevel, metaKey, Meta } from './meta';
 import { audio } from './audio/engine';
 import { sfx } from './audio/sfx';
 import { music } from './audio/music';
@@ -23,6 +23,13 @@ import { BTN, DualSenseHID } from './gamepad';
 
 type Mode = 'title' | 'hub' | 'run' | 'death' | 'reveal' | 'lobby';
 
+/** /test attract mode: when present and active, it drives the run/hub frames (client/autopilot.ts). */
+export interface AutopilotHook {
+  active: boolean;
+  runFrame(game: Game, dt: number): void;
+  hubFrame(hub: Hub, dt: number): void;
+}
+
 class App {
   world = new World();
   meta: Meta = loadMeta();
@@ -36,17 +43,18 @@ class App {
   seedInput = '';
   last = performance.now();
   private terminalOpen = false;
+  autopilot: AutopilotHook | null = null;
 
   constructor() {
     this.world.applySettings(this.meta);
-    this.world.input.onPause = () => this.togglePause();
+    this.world.input.onPause = () => { if (!this.autopilot?.active) this.togglePause(); };
     this.world.input.onLockChange = (locked) => {
-      if (!locked && (this.mode === 'run' || this.mode === 'hub') && !this.paused && !this.terminalOpen) this.togglePause(true);
+      if (!locked && (this.mode === 'run' || this.mode === 'hub') && !this.paused && !this.terminalOpen && !this.autopilot?.active) this.togglePause(true);
     };
     document.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
     document.addEventListener('keydown', () => audio.unlock(), { capture: true });
     document.getElementById('gl')!.addEventListener('click', () => {
-      if ((this.mode === 'run' || this.mode === 'hub') && !this.paused && !this.world.input.locked) this.world.input.requestLock();
+      if ((this.mode === 'run' || this.mode === 'hub') && !this.paused && !this.world.input.locked && !this.autopilot?.active) this.world.input.requestLock();
     });
     this.world.input.pad.onConnect = () => { if (this.mode === 'title' && this.splashDone && this.overlay?.querySelector('.mm')) this.showMenu(); };
     this.world.input.pad.hid.onChange = () => { if (this.mode === 'title' && this.splashDone && this.overlay?.querySelector('.mm')) this.showMenu(); };
@@ -65,10 +73,10 @@ class App {
       if (!gameplay) this.menuNav();
       if (this.mode === 'run' && this.game) {
         this.game.paused = this.paused;
-        this.game.update(dt);
+        if (this.autopilot) this.autopilot.runFrame(this.game, dt); else this.game.update(dt);
       } else if (this.mode === 'hub' && this.hub) {
         this.hub.paused = this.paused || this.terminalOpen;
-        this.hub.update(dt);
+        if (this.autopilot) this.autopilot.hubFrame(this.hub, dt); else this.hub.update(dt);
       } else if (this.mode === 'title' || this.mode === 'death' || this.mode === 'lobby' || this.mode === 'reveal') {
         // slow idle camera drift behind menus
         const lp = this.world.player;
@@ -802,7 +810,7 @@ class App {
     let armed = false;
     q('b-reset').onclick = () => {
       if (!armed) { armed = true; q('b-reset').textContent = 'CLICK AGAIN TO ERASE'; return; }
-      localStorage.removeItem('rouged.meta.v1');
+      localStorage.removeItem(metaKey());
       this.meta = loadMeta();
       this.world.applySettings(this.meta);
       this.showTitle();

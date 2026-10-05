@@ -58,6 +58,9 @@ export interface Meta {
 }
 
 const KEY = 'rouged.meta.v1';
+/** The /test autopilot keeps its own save slot so it never touches the player's progress. */
+export const AI_META_KEY = 'rouged.meta.ai.v1';
+export function metaKey(): string { return (globalThis as { __ROUGED_AUTOPILOT__?: boolean }).__ROUGED_AUTOPILOT__ ? AI_META_KEY : KEY; }
 
 export function defaultMeta(): Meta {
   return {
@@ -69,7 +72,7 @@ export function defaultMeta(): Meta {
 
 export function loadMeta(): Meta {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(metaKey());
     if (!raw) return defaultMeta();
     const m = JSON.parse(raw) as Partial<Meta>;
     const d = defaultMeta();
@@ -94,7 +97,7 @@ export function loadMeta(): Meta {
 }
 
 export function saveMeta(m: Meta) {
-  try { localStorage.setItem(KEY, JSON.stringify(m)); } catch { /* storage unavailable: progress lives for this session */ }
+  try { localStorage.setItem(metaKey(), JSON.stringify(m)); } catch { /* storage unavailable: progress lives for this session */ }
 }
 
 export function metaLevel(m: Meta) { return levelFromXp(m.xp); }

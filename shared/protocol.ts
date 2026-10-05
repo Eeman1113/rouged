@@ -3,8 +3,8 @@
 export type EnemyType = 'drone' | 'grunt' | 'brute' | 'stalker' | 'spider' | 'replica' | 'warden' | 'leech' | 'sentinel' | 'bomber' | 'mortar' | 'bulwark' | 'wraith' | 'echo';
 export type WeaponId = 'pulse' | 'breacher' | 'lance' | 'ripper';
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
-export type DoorKind = 'standard' | 'elite' | 'unknown' | 'corrupted' | 'extract' | 'shop' | 'sanctuary' | 'trial';
-export type RoomKind = 'combat' | 'arena' | 'gauntlet' | 'anomaly' | 'boss' | 'hub' | 'shop' | 'sanctuary' | 'trial';
+export type DoorKind = 'standard' | 'elite' | 'unknown' | 'corrupted' | 'extract' | 'shop' | 'sanctuary' | 'trial' | 'memory';
+export type RoomKind = 'combat' | 'arena' | 'gauntlet' | 'anomaly' | 'boss' | 'hub' | 'shop' | 'sanctuary' | 'trial' | 'happy';
 export type Mutator = 'darkness' | 'overclock' | 'lowgrav' | 'bloodmoon' | 'silence' | 'swarm';
 export type BiomeId = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 export type Difficulty = 'easy' | 'normal' | 'hard' | 'nightmare';
@@ -234,7 +234,9 @@ export type GameEvent =
   /** a boss speaks (the Handler warns you) */
   | { e: 'bossSay'; enemy: number; text: string }
   | { e: 'bossEnrage'; enemy: number }
-  | { e: 'extractOffer' };
+  | { e: 'extractOffer' }
+  /** THE HAPPY PLACE stops pretending: the sky bruises over `t` seconds, then the ambush lands */
+  | { e: 'memoryCorrupt'; t: number };
 
 export type ZoneKind = 'lava' | 'acid' | 'thorns' | 'static' | 'blood' | 'dark' | 'invert';
 

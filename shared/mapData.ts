@@ -56,6 +56,149 @@ export interface RoomGeo {
   ambient: number;
   fog: number;
   bounds: { x0: number; z0: number; x1: number; z1: number };
+  /** THE HAPPY PLACE only: the render-side layout of the street (collision lives in `boxes`). */
+  happy?: HappyLayout;
+}
+
+// ───────────────────────────── THE HAPPY PLACE ─────────────────────────────
+
+export interface HappyHouse {
+  x0: number; z0: number; x1: number; z1: number;
+  /** side the front door faces */
+  face: 'n' | 'e' | 'w' | 's';
+  /** wall height (eaves) and ridge height above the eaves */
+  body: number; roof: number;
+  color: number; roofColor: number; trim: number; doorColor: number;
+  wren: boolean;
+  /** a film-set flat: the back was never rendered */
+  noBack: boolean;
+  chimney: boolean;
+  porch: boolean;
+  /** render-only (the street beyond the hedges) */
+  backdrop: boolean;
+}
+
+export interface HappyLayout {
+  houses: HappyHouse[];
+  trees: { x: number; z: number; r: number; h: number; v: number }[];
+  /** picket fence runs (axis-aligned, along x or z) */
+  fences: { x0: number; z0: number; x1: number; z1: number }[];
+  lamps: { x: number; z: number }[];
+  mailbox: { x: number; z: number };
+  swing: { x: number; z: number };
+  bike: { x: number; z: number; rot: number };
+  /** road strips: north-south x range, east-west z range */
+  roadNS: [number, number];
+  roadEW: [number, number];
+  walk: number; // sidewalk width
+  /** where the memory tears open when it corrupts */
+  ambush: Vec3[];
+  /** Wren's front door (the heal) */
+  wrenDoor: { x: number; z: number };
+}
+
+export const HAPPY_SIZE = 46;
+
+/** Pastel siding, the colors a child would pick. */
+const HOUSE_COLORS = [0xf2efe6, 0xbfe0f0, 0xf6d9a8, 0xcfe8c4, 0xf4c8c4, 0xe4d8f0];
+const ROOF_COLORS = [0x8a4a3a, 0x4a5a72, 0x6a5a4a, 0x7a3a3a, 0x3e5a4a];
+
+function happyStreet(b: Builder, rng: Rng, hw: number, hd: number, decor: Decor[]): HappyLayout {
+  const houses: HappyHouse[] = [];
+  const pick = <T>(a: T[]) => a[rng.int(0, a.length - 1)];
+  const house = (x0: number, z0: number, x1: number, z1: number, face: HappyHouse['face'], o: Partial<HappyHouse> = {}) => {
+    const h: HappyHouse = {
+      x0, z0, x1, z1, face, body: 4.4, roof: 2.8, color: pick(HOUSE_COLORS), roofColor: pick(ROOF_COLORS), trim: 0xffffff,
+      doorColor: pick([0xb8322a, 0x2a5a8a, 0x2f6a3a, 0xe8c040, 0x5a3a2a]), wren: false, noBack: false, chimney: rng.chance(0.6), porch: true, backdrop: false, ...o,
+    };
+    houses.push(h);
+    if (!h.backdrop) {
+      // the body is solid all the way to the ridge: nobody stands on these roofs
+      b.add(x0, 0, z0, x1, h.body + h.roof, z1, 'wall', 3);
+      if (h.porch) {
+        const cz = (z0 + z1) / 2, cx = (x0 + x1) / 2;
+        if (face === 'e') b.add(x1, 0, cz - 1.6, x1 + 1.6, 0.28, cz + 1.6, 'platform', 0);
+        else if (face === 'w') b.add(x0 - 1.6, 0, cz - 1.6, x0, 0.28, cz + 1.6, 'platform', 0);
+        else if (face === 's') b.add(cx - 1.6, 0, z1, cx + 1.6, 0.28, z1 + 1.6, 'platform', 0);
+        else b.add(cx - 1.6, 0, z0 - 1.6, cx + 1.6, 0.28, z0, 'platform', 0);
+      }
+    }
+    return h;
+  };
+  // the four houses on the street
+  house(-19, 5, -11, 13, 'e');
+  const wren = house(11, 5, 19, 13, 'w', { wren: true, body: 6.2, roof: 3, color: 0xf8f0dc, roofColor: 0x7a3a32, doorColor: 0xe8c040, chimney: true });
+  house(-18, -19.5, -11, -12.5, 'e', { noBack: true, color: 0xbfe0f0 });
+  house(11, -20, 19, -12.5, 'w', { body: 5.2 });
+  // beyond the hedges: the rest of the street, render-only (and suspiciously identical)
+  const bc = pick(HOUSE_COLORS), br = pick(ROOF_COLORS);
+  for (const z of [-15, 0, 15]) {
+    house(-hw - 16, z - 4, -hw - 8, z + 4, 'e', { backdrop: true, color: bc, roofColor: br, chimney: true });
+    house(hw + 8, z - 4, hw + 16, z + 4, 'w', { backdrop: true, color: bc, roofColor: br, chimney: true });
+  }
+  for (const x of [-17, -4, 9]) house(x - 4, -hd - 16, x + 4, -hd - 8, 's', { backdrop: true, color: bc, roofColor: br, chimney: true });
+  for (const x of [-12, 12]) house(x - 4, hd + 8, x + 4, hd + 16, 'n', { backdrop: true, color: bc, roofColor: br, chimney: true });
+
+  // trees: trunk is solid, the canopy is just light
+  const trees: HappyLayout['trees'] = [];
+  const tree = (x: number, z: number, r = rng.range(2.2, 3.1), h = rng.range(4.6, 6.2)) => {
+    trees.push({ x, z, r, h, v: rng.int(0, 2) });
+    if (Math.abs(x) < hw && Math.abs(z) < hd) b.add(x - 0.32, 0, z - 0.32, x + 0.32, h * 0.62, z + 0.32, 'pillar', 1);
+  };
+  tree(-8.3, 19); tree(8.4, 19.6); tree(-8.3, 2.9); tree(8.3, 2.7);
+  tree(-15.5, 19.2); tree(-20.6, 1.9); tree(-8.3, -13.2); tree(8.4, -18.6); tree(-20.6, -21);
+  // the street beyond: trees between the backdrop houses, then a far skyline of tall ones
+  for (const sx of [-1, 1]) {
+    for (const z of [-22.5, -7.5, 7.5, 22.5]) tree(sx * (hw + 12), z + rng.range(-0.6, 0.6), rng.range(2.6, 3.4), rng.range(5.5, 7));
+    for (const z of [-10, 8, 20]) tree(sx * (hw + 5), z, rng.range(2.2, 2.8), rng.range(4.5, 5.8));
+  }
+  for (const x of [-10.5, 2.5, 15.5]) tree(x, -hd - 12 + rng.range(-1, 1), rng.range(2.6, 3.4), rng.range(5.5, 7));
+  for (const x of [-12, 6]) tree(x, -hd - 5, rng.range(2.2, 2.8), rng.range(4.5, 5.8));
+  for (const x of [0, -22, 22]) tree(x, hd + 12 + rng.range(-1, 1), rng.range(2.6, 3.4), rng.range(5.5, 7));
+  for (let i = 0; i < 26; i++) {
+    const a = (i / 26) * Math.PI * 2 + rng.range(-0.08, 0.08), R = rng.range(56, 72);
+    tree(Math.cos(a) * R, Math.sin(a) * R, rng.range(4, 6), rng.range(8, 12));
+  }
+
+  // picket fences along the front yards (gaps for the walkways)
+  const fences: HappyLayout['fences'] = [];
+  const F = 0.95;
+  const fence = (x0: number, z0: number, x1: number, z1: number) => {
+    fences.push({ x0, z0, x1, z1 });
+    const t = 0.09;
+    if (x0 === x1) b.add(x0 - t, 0, Math.min(z0, z1), x0 + t, F, Math.max(z0, z1), 'crate', 0);
+    else b.add(Math.min(x0, x1), 0, z0 - t, Math.max(x0, x1), F, z0 + t, 'crate', 0);
+  };
+  for (const sx of [-1, 1]) {
+    const x = sx * 5.95;
+    fence(x, 1.0, x, 7.4); fence(x, 10.6, x, 21.2);
+    fence(x, -21.4, x, -17.6); fence(x, -14.4, x, -11);
+  }
+
+  // street furniture (posts are solid, the rest is scenery)
+  const lamps = [{ x: -4.9, z: 13.5 }, { x: 4.9, z: 13.5 }, { x: -4.9, z: -15.5 }, { x: 4.9, z: -15.5 }];
+  for (const l of lamps) b.add(l.x - 0.12, 0, l.z - 0.12, l.x + 0.12, 4.4, l.z + 0.12, 'pillar', 2);
+  const mailbox = { x: 6.6, z: 7.0 };
+  b.add(mailbox.x - 0.1, 0, mailbox.z - 0.1, mailbox.x + 0.1, 1.15, mailbox.z + 0.1, 'crate', 0);
+  const swing = { x: 16, z: 18.2 };
+  for (const sx of [-1.7, 1.7]) b.add(swing.x + sx - 0.12, 0, swing.z - 0.9, swing.x + sx + 0.12, 2.5, swing.z + 0.9, 'pillar', 2);
+  const bike = { x: -5.25, z: 13.4, rot: 0.12 };
+
+  // Wren's porch: her door is the heal
+  const wrenDoor = { x: wren.x0 - 0.7, z: (wren.z0 + wren.z1) / 2 };
+  decor.push({ kind: 'shrine', x: wrenDoor.x, y: 0.28, z: wrenDoor.z, nx: -1, nz: 0, v: 1 });
+  // a voice in the yard, by the swing
+  decor.push({ kind: 'text', x: swing.x, y: 2.3, z: swing.z - 1.4, nx: 0, nz: 1, v: 2 });
+
+  const ambush: Vec3[] = [
+    { x: -8.6, y: 0, z: 9 }, { x: 8.6, y: 0, z: 9 }, { x: -8.6, y: 0, z: -16 }, { x: 8.6, y: 0, z: -16 },
+    { x: 0, y: 0, z: -19.5 }, { x: -19.5, y: 0, z: -5 }, { x: 19.5, y: 0, z: -5 }, { x: -20.5, y: 0, z: -15.5 },
+    { x: -2.5, y: 0, z: -10 }, { x: 2.5, y: 0, z: -12 },
+  ];
+  return {
+    houses, trees, fences, lamps, mailbox, swing, bike, roadNS: [-3.5, 3.5], roadEW: [-8.5, -1.5], walk: 2,
+    ambush, wrenDoor,
+  };
 }
 
 const WALL_T = 1; // wall thickness
@@ -110,9 +253,11 @@ export function planDoors(desc: RoomDesc, _totalRooms = 0): DoorPlan[] {
     return [{ kind: 'standard', nextKind: 'combat' }];
   }
   const count = desc.kind === 'gauntlet' ? 2 : desc.index === 0 ? 2 : rng.int(2, 3);
-  const kinds: DoorKind[] = ['standard', 'elite', 'unknown', 'corrupted', 'shop', 'sanctuary', 'trial'];
-  const rest = desc.kind === 'shop' || desc.kind === 'sanctuary';
-  const weights = [42, 22, 13, desc.kind === 'anomaly' ? 0 : 12, desc.index >= 2 && !rest ? 10 : 0, desc.index >= 3 && !rest ? 7 : 0, desc.index >= 4 ? 7 : 0];
+  const kinds: DoorKind[] = ['standard', 'elite', 'unknown', 'corrupted', 'shop', 'sanctuary', 'trial', 'memory'];
+  const rest = desc.kind === 'shop' || desc.kind === 'sanctuary' || desc.kind === 'happy';
+  // THE HAPPY PLACE: rare, from room 3, never twice running, never on the doorstep of a Warden
+  const memoryOk = next >= 3 && !rest && !isBossIndex(next + 1);
+  const weights = [42, 22, 13, desc.kind === 'anomaly' ? 0 : 12, desc.index >= 2 && !rest ? 10 : 0, desc.index >= 3 && !rest ? 7 : 0, desc.index >= 4 ? 7 : 0, memoryOk ? 6 : 0];
   const plans: DoorPlan[] = [];
   const used = new Set<DoorKind>();
   for (let i = 0; i < count; i++) {
@@ -130,6 +275,7 @@ export function planDoors(desc: RoomDesc, _totalRooms = 0): DoorPlan[] {
     else if (k === 'shop') nk = 'shop';
     else if (k === 'sanctuary') nk = 'sanctuary';
     else if (k === 'trial') nk = 'trial';
+    else if (k === 'memory') nk = 'happy';
     else nk = 'anomaly';
     let mutator: Mutator | undefined;
     const combatish = nk === 'combat' || nk === 'arena' || nk === 'gauntlet' || nk === 'trial';
@@ -257,7 +403,7 @@ function placeDoorsOnWalls(rng: Rng, plans: DoorPlan[], w: number, d: number, ki
     const side = options[i];
     let offset = 0;
     if (kind === 'gauntlet' && n === 2) offset = i === 0 ? -w / 4 + 0.5 : w / 4 - 0.5;
-    else if (side === 'n') offset = n === 1 ? 0 : rng.range(-w / 6, w / 6);
+    else if (side === 'n') offset = n === 1 ? 0 : kind === 'happy' ? rng.range(-2.4, 2.4) : rng.range(-w / 6, w / 6); // the happy street's road runs out at the north gate
     else offset = rng.range(-d / 6, -d / 12); // side doors toward the far half
     doors.push({ side, offset, plan: plans[i], entry: false, slot: i });
   }
@@ -388,6 +534,8 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
     case 'shop': w = 18; d = 18; h = 6; break;
     case 'sanctuary': w = 14; d = 16; h = 8; break;
     case 'trial': w = 30; d = 30; h = 9; break;
+    // open sky: the "walls" are invisible and tall enough that nobody jumps out of the memory
+    case 'happy': w = HAPPY_SIZE; d = HAPPY_SIZE; h = 14; break;
   }
   if (desc.reveal) { w = 50; d = 50; h = 16; }
   const plans = desc.kind === 'hub' ? [{ kind: 'standard' as DoorKind, nextKind: 'combat' as RoomKind }] : planDoors(desc, totalRooms);
@@ -397,17 +545,18 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
 
   // keep clear: player spawn zone near the entry, pedestal zone
   b.clear(0, hd - 3.5, 4.5, 3.5);
-  const pedZ = desc.kind === 'gauntlet' ? -hd + 9 : desc.kind === 'boss' ? 0 : -1;
+  const pedZ = desc.kind === 'gauntlet' ? -hd + 9 : desc.kind === 'boss' ? 0 : desc.kind === 'happy' ? 6 : -1;
   const pedestals = desc.kind === 'shop'
     ? [{ x: -5, z: -1 }, { x: -1.7, z: -1 }, { x: 1.7, z: -1 }, { x: 5, z: -1 }, { x: -3.3, z: 2.4 }, { x: 3.3, z: 2.4 }]
     : [{ x: -2.6, z: pedZ }, { x: 2.6, z: pedZ }, { x: 0, z: pedZ - 3.2 }];
   if (desc.kind !== 'hub') b.clear(0, pedZ - 1.5, 4.5, 3.4);
 
   buildShell(b, w, d, h, wallDoors, doorSlots);
-  addTrim(b, w, d, h, Math.min(h - 1, 3.2));
+  if (desc.kind !== 'happy') addTrim(b, w, d, h, Math.min(h - 1, 3.2));
 
   const decor: Decor[] = [];
   const enemySpawns: Vec3[] = [];
+  let happy: HappyLayout | undefined;
 
   if (desc.kind === 'combat' || desc.kind === 'trial') {
     if (desc.biome === 4) jungle(b, w, d, h);
@@ -481,6 +630,8 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
     decor.push({ kind: 'shrine', x: 0, y: 0, z: -2, nx: 0, nz: 1, v: 0 });
     decor.push({ kind: 'terminal', x: -hw + 0.05, y: 1.7, z: 1, nx: 1, nz: 0, v: 2 });
     for (let i = 0; i < 4; i++) b.add(-hw + 1 + i * 0.01, 0, -hd + 2 + i * 3, -hw + 1.6, 0.5, -hd + 3.2 + i * 3, 'crate', 0);
+  } else if (desc.kind === 'happy') {
+    happy = happyStreet(b, rng, hw, hd, decor);
   } else if (desc.kind === 'hub') {
     decor.push({ kind: 'terminal', x: hw - 0.05, y: 1.6, z: -1, nx: -1, nz: 0, v: 0 });
     decor.push({ kind: 'tally', x: -hw + 0.04, y: 1.9, z: 0, nx: 1, nz: 0, v: 0 });
@@ -531,6 +682,8 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
 
   const lightCount = desc.kind === 'hub' ? 1 : desc.kind === 'gauntlet' ? 5 : desc.kind === 'boss' ? 6 : 4;
   const lights = lightsFor(rng, biome, w, d, h, lightCount);
+  // the street lamps are on in broad daylight (nobody told the memory)
+  if (happy) happy.lamps.forEach((l, i) => { if (lights[i]) Object.assign(lights[i], { x: l.x + (l.x < 0 ? 0.9 : -0.9), y: 4.2, z: l.z, color: 0xffd890, intensity: 7, range: 9 }); });
   if (desc.kind === 'hub') { lights[0].x = 0; lights[0].z = 0; lights[0].intensity = 14; lights[0].range = 14; lights[0].y = h - 0.4; }
   if (desc.kind === 'anomaly') for (const l of lights) { l.color = 0x7dff7a; l.intensity *= 0.7; }
   if (desc.kind === 'sanctuary') for (const l of lights) { l.color = 0xfff0c8; l.intensity *= 0.8; }
@@ -541,8 +694,9 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
   return {
     desc, w, d, h, boxes: b.boxes, doors: doorSlots.sort((a, c) => a.slot - c.slot), playerSpawns, enemySpawns,
     pedestals, lights, decor, nav,
-    ambient: desc.kind === 'anomaly' ? 0.35 : 0.5,
-    fog: desc.kind === 'hub' ? 0.03 : desc.kind === 'anomaly' ? 0.06 : desc.mutator === 'darkness' ? 0.075 : desc.biome === 4 ? 0.05 : desc.biome === 5 ? 0.045 : 0.035,
+    ambient: desc.kind === 'anomaly' ? 0.35 : desc.kind === 'happy' ? 1.0 : 0.5,
+    happy,
+    fog: desc.kind === 'happy' ? 0.011 : desc.kind === 'hub' ? 0.03 : desc.kind === 'anomaly' ? 0.06 : desc.mutator === 'darkness' ? 0.075 : desc.biome === 4 ? 0.05 : desc.biome === 5 ? 0.045 : 0.035,
     bounds,
   };
 }

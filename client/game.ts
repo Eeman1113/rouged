@@ -6,7 +6,7 @@ import type { EnemySnap, GameEvent, Pedestal, PlayerPrivate, PlayerSnap, RoomDes
 import { generateRoom, raycastBoxes, rayVsSphere, rayVsCylinder, BIOME_NAMES, Box, MUTATOR_NAME } from '../shared/mapData';
 import type { ShopItem } from '../shared/protocol';
 import { WARDEN_VOICE, ANNOUNCER } from './audio/voices';
-import { BIOME_INFO, BROKER_LINES, maraLog, MUTATOR_INFO, TRUE_ENDING_SCRIPT, endlessLine } from './story/fragments';
+import { BIOME_INFO, BROKER_LINES, maraLog, MUTATOR_INFO, TRUE_ENDING_SCRIPT, endlessLine, nextHappyFragment, wrenWhisper } from './story/fragments';
 import { biomeLine } from './story/handlerLines';
 import { ENEMIES } from '../shared/enemyDefs';
 import { WEAPONS, WEAPON_ORDER } from '../shared/weaponDefs';
@@ -147,6 +147,8 @@ export class Game {
     this.rumble(0.15, 0.3, 120);
   }
   cinematic = false;
+  /** THE HAPPY PLACE: did the memory break */
+  memoryBroken = false;
   private hazardFx = 0;
   private lastPhase = 1;
   private gloryCooldown = 0;
@@ -521,8 +523,10 @@ export class Game {
       }
       case 'doorsOpen': {
         sfx.doorOpen();
+        if (this.room?.kind === 'happy' && !this.memoryBroken) w.say('happyHold', this.runCount, 2, 0);
         break;
       }
+      case 'memoryCorrupt': this.onMemoryCorrupt(e.t); break;
       case 'bossIntro': {
         this.bossName = e.name;
         music.silence(2.2);
@@ -642,7 +646,10 @@ export class Game {
           sfx.levelUp();
           w.flash(0.6);
           w.tint('#fff0c0', 0.5);
-          w.hud.announcer.show('RESTORED', 'gold', 'INTEGRITY 100%');
+          if (this.room?.kind === 'happy') {
+            w.hud.announcer.show('WELCOME HOME', 'gold', 'INTEGRITY 100%');
+            setTimeout(() => w.hud.pops.spawn(e.x - 0.8, 2.1, e.z, 'nobody answers', 'whisper', 3, 0.1), 900);
+          } else w.hud.announcer.show('RESTORED', 'gold', 'INTEGRITY 100%');
           this.rumble(0.2, 0.5, 400);
           if (w.map.shrine) w.map.shrine.visible = false;
         }
@@ -701,6 +708,27 @@ export class Game {
       }
       default: break;
     }
+  }
+
+  /** THE HAPPY PLACE breaks: the sky bruises, the music drops out, then slams back as combat. */
+  private onMemoryCorrupt(t: number) {
+    const w = this.world;
+    this.memoryBroken = true;
+    w.map.corruptMemory(t);
+    music.silence(t + 0.4);
+    setTimeout(() => music.setBiome(this.room?.biome ?? 0), 120);
+    sfx.staticBurst(0.5);
+    w.glitch(1);
+    w.tint('#5a0010', 0.55);
+    w.shake(6);
+    this.rumble(0.7, 0.5, 600);
+    this.flashLightbar(255, 0, 20, 1.5);
+    w.ents.ambient = 0.62;
+    w.hud.announcer.show('MEMORY CORRUPTED', 'l4 big', 'IT WAS NEVER YOURS', true);
+    setTimeout(() => w.say('happyCorrupt', this.runCount, 5, 0), 500);
+    // the light keeps failing while it goes
+    for (let i = 1; i <= 4; i++) setTimeout(() => { w.glitch(0.7); w.tint('#3a0008', 0.45); sfx.staticBurst(0.15); }, i * (t * 250));
+    setTimeout(() => { w.flash(0.5); w.shake(10); w.tint('#ff0018', 0.7); w.cast.say('announcer', 'HOSTILES', 2); }, t * 1000);
   }
 
   onKill(e: Extract<GameEvent, { e: 'kill' }>) {
@@ -857,8 +885,8 @@ export class Game {
       w.loadGeo(geo, {
         runCount: this.runCount,
         corpses: this.runCount >= 8,
-        whisper: room.kind === 'anomaly' ? anomalyText.replace(/\{name\}/g, this.meta.name) : undefined,
-        flicker: room.kind === 'anomaly' ? 0.5 : handlerPhase(this.runCount) >= 3 ? 0.15 : 0.04,
+        whisper: room.kind === 'anomaly' ? anomalyText.replace(/\{name\}/g, this.meta.name) : room.kind === 'happy' ? wrenWhisper(this.runCount).replace(/\{name\}/g, this.meta.name) : undefined,
+        flicker: room.kind === 'anomaly' ? 0.5 : room.kind === 'happy' ? 0 : handlerPhase(this.runCount) >= 3 ? 0.15 : 0.04,
       });
       const sp = spawns.find((s) => s.id === this.me);
       if (sp) {
@@ -869,16 +897,21 @@ export class Game {
       // anything offered during the fade survives the rebuild
       if (this.shop) w.ents.showShop(this.shop);
       if (this.pedestals) w.ents.showPedestals(this.pedestals);
+      // doors that opened during the fade were applied to the OLD room: re-apply them to this one
+      if (this.openDoors.size) { for (const slot of this.openDoors) w.map.setDoorOpen(slot, true); w.setOpenDoors(this.openDoors); }
       const term = geo.decor.find((d) => d.kind === 'terminal');
       if (term) this.terminalPos = { x: term.x + term.nx * 1.5, z: term.z + term.nz * 1.5 };
+      if (geo.happy) this.terminalPos = { x: geo.happy.mailbox.x - 0.9, z: geo.happy.mailbox.z }; // the mailbox
     }, first ? 0 : 220);
 
     const biome = BIOME_NAMES[room.biome];
     const depth = room.index + 1;
     w.depth = depth;
-    w.hud.setRoom(depth > total ? `${biome} · DEPTH ${depth}` : `${biome} · ${depth}/${total}`);
-    music.setBiome(room.biome);
+    const place = room.kind === 'happy' ? 'THE HAPPY PLACE' : biome;
+    w.hud.setRoom(depth > total ? `${place} · DEPTH ${depth}` : `${place} · ${depth}/${total}`);
+    music.setBiome(room.kind === 'happy' ? 'happy' : room.biome);
     if (first) { music.start(); music.resume(); }
+    this.memoryBroken = false;
     w.hud.setBoss(null);
     // mutators
     const mut = room.mutator;
@@ -917,6 +950,13 @@ export class Game {
       this.maraText = maraLog(this.runCount);
     }
     else if (room.kind === 'trial') { /* announced by the trial event */ }
+    else if (room.kind === 'happy') {
+      w.hud.announcer.show('THE HAPPY PLACE', 'gold big', 'MEMORY ASSET 0001-H');
+      setTimeout(() => w.say('happyEnter', this.runCount, 3, 0), 1800);
+      // the flag on the mailbox is up
+      const f = nextHappyFragment(this.meta.fragments, this.runCount);
+      if (f) { this.roomFragment = f; this.pendingFragment = f; this.meta.fragments.push(f.id); }
+    }
     else if (room.kind === 'anomaly') {
       w.say('anomalyEnter', this.runCount, 3, 0);
       // corrupted doors carry story fragments
@@ -1381,17 +1421,22 @@ export class Game {
     else w.hud.pedestalInfo(this.focusPed, useKey);
     // the shrine
     if (this.shrinePos && this.shrine && !target && Math.hypot(this.shrinePos.x - lp.x, this.shrinePos.z - lp.z) < 2.6) {
-      prompt = `[${useKey}] REST AT THE SHRINE`;
+      prompt = this.room?.kind === 'happy' ? `[${useKey}] KNOCK ON THE DOOR` : `[${useKey}] REST AT THE SHRINE`;
       if (inp.pressed.has('use')) this.net.send({ t: 'shrine' });
     }
     // terminal (anomaly rooms)
     if (this.terminalPos && !target && !this.focusPed) {
       const d = Math.hypot(this.terminalPos.x - lp.x, this.terminalPos.z - lp.z);
       if (d < 2.6) {
-        prompt = inp.padActive ? '[□] ACCESS TERMINAL' : inp.touchMode ? 'USE · ACCESS TERMINAL' : '[E] ACCESS TERMINAL';
+        const what = this.room?.kind === 'happy' ? 'CHECK THE MAILBOX' : 'ACCESS TERMINAL';
+        prompt = inp.padActive ? `[□] ${what}` : inp.touchMode ? `USE · ${what}` : `[E] ${what}`;
         if (inp.pressed.has('use')) {
           sfx.terminalBeep();
-          if (this.room?.kind === 'sanctuary') {
+          if (this.room?.kind === 'happy') {
+            const f = this.roomFragment;
+            this.cb.onTerminal(f ? ['> MAILBOX // 14 MAPLE ROW', '> THE FLAG IS UP', ''] : ['> MAILBOX // 14 MAPLE ROW', '> THE FLAG IS UP', '', 'It is empty. The flag is up anyway.'], f);
+            if (f) w.cast.say('system', f.title + '. ' + f.text.split(/[.\n]/)[0], 2);
+          } else if (this.room?.kind === 'sanctuary') {
             this.cb.onTerminal(['> PLAYBACK: SUBJECT 0112 "MARA"', '> SOURCE: UNLOGGED', '', this.maraText], null);
             w.cast.say('mara', this.maraText, 3);
           } else {

@@ -8,6 +8,7 @@ import { wardenDef2 } from './art/warden2';
 import { buildWall2, buildFloor2, buildCeiling2, buildCrate2 } from './art/textures2';
 import { buildVendor, buildShrine, buildScrap, buildShield, buildProjectile2, buildFoliage } from './art/props';
 import { buildWeapon } from './art/weapons';
+import * as H from './art/happy';
 import { buildFace } from './art/face';
 import {
   buildGibs, buildBloodSprites, buildBloodDecal, buildScorch, buildSpark, buildMuzzle, buildProjectile,
@@ -189,3 +190,17 @@ export {
   vmFx as viewmodelFx, VM_VFOV, FIST_FRAMES,
 } from './art/viewmodelRigs';
 export type { Frame as ViewmodelFrame } from './art/viewmodel3d';
+
+// ------------------------------------------------------------------ THE HAPPY PLACE (art/happy.ts)
+export type HappyTexture = 'grass' | 'asphalt' | 'sidewalk' | 'siding' | 'shingles' | 'brick' | 'wood' | 'plywood' | 'porch' | 'hedge' | 'leaves' | 'bark' | 'door' | 'sun' | 'glow';
+const HAPPY_BUILD: Record<HappyTexture, () => HTMLCanvasElement> = {
+  grass: H.buildGrass, asphalt: H.buildAsphalt, sidewalk: H.buildSidewalk, siding: H.buildSiding, shingles: H.buildShingles,
+  brick: H.buildBrick, wood: H.buildWood, plywood: H.buildPlywood, porch: H.buildPorchFloor, hedge: H.buildHedge,
+  leaves: H.buildLeaves, bark: H.buildBark, door: H.buildFrontDoor, sun: H.buildSun, glow: H.buildGlow,
+};
+export function getHappyTexture(kind: HappyTexture): HTMLCanvasElement { return memo(`happy:${kind}`, HAPPY_BUILD[kind]); }
+export function getHappyWindow(kind: H.WindowKind): HTMLCanvasElement { return memo(`happy:win:${kind}`, () => H.buildWindow(kind)); }
+/** 0..2 cumulus variants, 96x44 */
+export function getCloudSprite(v: number): HTMLCanvasElement { const k = ((Math.floor(v || 0) % 3) + 3) % 3; return memo(`happy:cloud:${k}`, () => H.buildCloud(k)); }
+export function getBirdSprite(f: number): HTMLCanvasElement { const k = Math.floor(f || 0) & 1; return memo(`happy:bird:${k}`, () => H.buildBird(k)); }
+export type { WindowKind } from './art/happy';

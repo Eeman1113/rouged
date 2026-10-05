@@ -14,6 +14,8 @@
   <img src="https://img.shields.io/badge/co--op-1%E2%80%934%20players-0b0606?style=flat-square" alt="co-op"/>
 </p>
 
+<p align="center"><a href="https://eeman1113.github.io/rouged/test/"><b>🤖 WATCH THE AI PLAY</b></a> · <code>/test</code> runs an autopilot run after run, with its own save</p>
+
 <br/>
 
 > [!CAUTION]
@@ -61,6 +63,9 @@ Seven sectors, five rooms each, with a **Warden** at the end of every sector. Af
   <tr>
     <td><img src="docs/media/biome-mirror.jpg"/><br/><b>07 · THE MIRROR</b> — <i>inside the Handler.</i> Black, white, and very quiet.</td>
     <td><img src="docs/media/bloodmoon.jpg"/><br/><b>∞ · THE ENDLESS</b> — <i>DEPTH 36+.</i> There is no floor here. Only further.</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/media/happy-place.jpg"/><br/><b>☀ · THE HAPPY PLACE</b> — <i>a rare MEMORY door.</i> Blue sky, sunlight, your childhood street. It's lovely. It's a lie. <a href="#-file-06--doors-rooms-mutators">See what happens when it breaks ↓</a></td>
   </tr>
 </table>
 
@@ -195,6 +200,7 @@ The color of a door tells you what's behind it. Choosing a door is the strategy 
 | 💠 **THE BROKER** | A shop. Spend **scrap**, the residue of deleted minds. |
 | 🤍 **SANCTUARY** | A shrine that heals you, and a terminal holding *her* recordings |
 | 🟪 **TRIAL** | Beat the clock to earn a **legendary** |
+| 🌸 **THE HAPPY PLACE** | Rare. Your childhood street on a summer day: heal at her door, take a **rare** powerup. Sometimes it holds. |
 | ⬜ **EXTRACT** | Walk out. *(It leads back to the hub. It always does.)* |
 
 Some doors also carry a **mutator**. Each one adds a score bonus:
@@ -204,6 +210,18 @@ Some doors also carry a **mutator**. Each one adds a score bonus:
 <br/>
 
 <p align="center"><img src="docs/media/broker.jpg" width="80%"/><br/><i>The Broker. "You again. Or the other you."</i></p>
+
+<br/>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/happy-place.jpg"/><br/><sub>CALM — the memory holds</sub></td>
+    <td width="50%"><img src="docs/media/happy-place-corrupt.jpg"/><br/><sub>CORRUPTED — IT WAS NEVER YOURS</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><b>THE HAPPY PLACE</b> — <i>memory asset 0001-H.</i> Blue sky, real sunlight, picket fences, a swing that moves on its own. The simulation rebuilt your childhood street to keep you calm, and it is genuinely lovely. It's also wrong in small ways: the same cloud keeps coming back, one house has no back, and Wren's window is always lit. Pick a powerup and, more often than not, the memory corrupts. The sky bruises, the street goes dark, and the war comes out through the front doors. Her window stays lit.</td>
+  </tr>
+</table>
 
 <br/>
 
@@ -292,6 +310,8 @@ npm run server     # co-op server on :8787 (PORT to override)
 npm run build      # typecheck + production build → dist/
 npm run simtest    # a bot plays the full descent against the real sim, headless
 ```
+
+**Watch mode:** [`/test`](https://eeman1113.github.io/rouged/test/) is an attract mode. An AI pilot plays endlessly: it paths, dodges telegraphs, glory-kills, picks pedestals, shops and chooses doors. It keeps its own persistent save (`rouged.meta.ai.v1`), so your progress is never touched. Add `?speed=2` or `?speed=4` for faster play, use **TAKE OVER** (or press `O`) to grab the controls, and **RESET AI SAVE** to start the AI over.
 
 **Where it lives:**
 

@@ -7,7 +7,7 @@ import * as C from '../shared/constants';
 /** Shown as "x/35" — the descent ends at THE HANDLER; the Endless continues past it. */
 export const TOTAL_ROOMS = C.FINAL_ROOM;
 
-const KIND_CODE: Record<RoomKind, number> = { combat: 1, arena: 2, gauntlet: 3, anomaly: 4, boss: 5, hub: 6, shop: 7, sanctuary: 8, trial: 9 };
+const KIND_CODE: Record<RoomKind, number> = { combat: 1, arena: 2, gauntlet: 3, anomaly: 4, boss: 5, hub: 6, shop: 7, sanctuary: 8, trial: 9, happy: 10 };
 
 export function firstRoom(runSeed: number): RoomDesc {
   return { index: 0, biome: 0, kind: 'combat', door: 'standard', seed: mixSeed(runSeed, 0, 0, 1) };
@@ -45,7 +45,8 @@ function biomePool(biome: number, index: number): Pool {
 }
 
 /** Budget-based composition. Mutators bend it. */
-export function composeEnemies(desc: RoomDesc, players: number, runCount: number, rng: Rng, budgetMult = 1): SpawnPlan[] {
+/** `bias` adds extra weighted types on top of the biome pool (THE HAPPY PLACE ambush). */
+export function composeEnemies(desc: RoomDesc, players: number, runCount: number, rng: Rng, budgetMult = 1, bias?: [EnemyType, number][]): SpawnPlan[] {
   const past = Math.max(0, desc.index - C.FINAL_ROOM);
   let budget = 7 + Math.min(desc.index, C.FINAL_ROOM) * 1.55 + past * 0.6;
   if (runCount === 0 && desc.index === 0) budget = 6; // the very first room ever: a gentle hook
@@ -58,6 +59,7 @@ export function composeEnemies(desc: RoomDesc, players: number, runCount: number
     const extra = biomePool(rng.int(0, 6), desc.index);
     types = types.concat(extra[0]); weights = weights.concat(extra[1].map((w) => w * 0.6));
   }
+  if (bias) { types = types.concat(bias.map((b) => b[0])); weights = weights.concat(bias.map((b) => b[1])); }
   if (desc.mutator === 'silence') weights = weights.map((w, i) => (['stalker', 'wraith', 'leech'].includes(types[i]) ? w * 3 + 1 : w * 0.5));
   if (desc.mutator === 'swarm') { budget *= 1.6; weights = weights.map((w, i) => (COST[types[i]] <= 2 ? w * 4 + 1 : w * 0.4)); }
   const out: SpawnPlan[] = [];

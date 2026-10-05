@@ -13,6 +13,8 @@ export interface Fragment {
   text: string;
   /** If set, this fragment is only found in anomaly rooms of that biome (0–6). */
   biome?: number;
+  /** If set, found in that place (THE HAPPY PLACE's mailbox) — or, very late, on the death screen. */
+  place?: 'happy';
 }
 
 export const FRAGMENTS: Fragment[] = [
@@ -583,9 +585,17 @@ export function nextFragment(unlocked: string[], runCount: number, biome?: numbe
   }
   for (const f of FRAGMENTS) {
     if (have.has(f.id) || f.minRun > runCount) continue;
+    if (f.place) { if (b === undefined && runCount >= f.minRun + 10) return f; continue; }
     if (f.biome === undefined) return f;
     if (b === undefined && runCount >= f.minRun + 10) return f;
   }
+  return null;
+}
+
+/** THE HAPPY PLACE: the next letter in the mailbox (the flag is always up). */
+export function nextHappyFragment(unlocked: string[], runCount: number): Fragment | null {
+  const have = new Set(unlocked);
+  for (const f of FRAGMENTS) if (f.place === 'happy' && f.minRun <= runCount && !have.has(f.id)) return f;
   return null;
 }
 
