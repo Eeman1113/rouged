@@ -41,7 +41,24 @@ canvas#gl, canvas#hud2d { position: absolute; inset: 0; width: 100%; height: 100
 .boss-name { font-size: 12px; color: var(--blood); letter-spacing: 3px; margin-bottom: 6px; }
 .boss-bar { height: 12px; background: #200; border: 2px solid #000; box-shadow: 0 0 0 2px #611; }
 .boss-fill { height: 100%; background: linear-gradient(#ff3a2a, #8b0000); width: 100%; transition: width .15s; }
-.boss-phase { font-size: 8px; color: #b88; margin-top: 4px; }
+.boss-phase { font-size: 8px; color: #b88; display: flex; align-items: center; gap: 4px; }
+.boss-bar { position: relative; overflow: hidden; }
+.boss-fill { position: relative; z-index: 1; }
+.boss-ghost { position: absolute; left: 0; top: 0; height: 100%; background: #ffd2a0; opacity: .55; }
+.boss-tick { position: absolute; top: 0; width: 2px; height: 100%; background: #000; z-index: 2; opacity: .7; }
+.boss-sub { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; gap: 10px; }
+.boss-phase .pip { width: 7px; height: 7px; border: 1px solid #a55; transform: rotate(45deg); display: inline-block; }
+.boss-phase .pip.on { background: #ff3a2a; box-shadow: 0 0 6px #ff3a2a; }
+.boss-phase .pip.done { background: #5a1a14; }
+.boss-phase span { margin-left: 4px; }
+.boss-break { width: 34%; height: 4px; background: #1a1008; border: 1px solid #533; }
+.boss-break-fill { height: 100%; width: 0; background: linear-gradient(90deg, #ffb030, #fff2a0); transition: width .12s; }
+.boss.broken .boss-break-fill { background: #fff; box-shadow: 0 0 8px #ffb030; animation: bossblink .2s steps(2) infinite; }
+.boss.shielded .boss-fill { background: linear-gradient(#7ad8ff, #1a5a9a); }
+.boss.finish .boss-fill { background: #fff; }
+.boss-move { font-size: 9px; color: #e8c8a0; letter-spacing: 3px; text-align: center; margin-top: 5px; min-height: 10px; opacity: .85; text-shadow: 0 0 6px #000; }
+.boss.broken .boss-move, .boss.finish .boss-move { color: #fff2a0; }
+@keyframes bossblink { 50% { opacity: .4; } }
 .timer { font-size: 22px; color: var(--amber); margin-top: 6px; }
 .timer.urgent { color: #ff2a2a; animation: pulse .5s infinite; }
 .wave { font-size: 10px; color: var(--bone); margin-top: 6px; letter-spacing: 2px; }

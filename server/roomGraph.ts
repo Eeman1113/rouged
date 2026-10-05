@@ -24,7 +24,7 @@ export interface SpawnPlan { type: EnemyType; elite: boolean }
 
 const COST: Record<EnemyType, number> = {
   drone: 1, grunt: 2, spider: 2.5, stalker: 3, brute: 6, replica: 6, warden: 99,
-  leech: 1.5, sentinel: 4, bomber: 2, mortar: 4, bulwark: 6, wraith: 5,
+  leech: 1.5, sentinel: 4, bomber: 2, mortar: 4, bulwark: 6, wraith: 5, echo: 99,
 };
 const CAP: Partial<Record<EnemyType, number>> = { brute: 2, replica: 2, bulwark: 2, sentinel: 3, mortar: 3, wraith: 2 };
 
@@ -72,6 +72,13 @@ export function composeEnemies(desc: RoomDesc, players: number, runCount: number
     if (desc.mutator === 'bloodmoon') eliteChance = 1;
     out.push({ type: t, elite: rng.chance(eliteChance) });
     budget -= c;
+  }
+  // deep in the Endless the budget outgrows any sane room: cap the headcount, spend the rest on elites
+  const MAX_ENEMIES = 40;
+  if (out.length > MAX_ENEMIES) {
+    out.sort((a, b) => COST[b.type] - COST[a.type]);
+    out.length = MAX_ENEMIES;
+    for (const o of out) o.elite = true;
   }
   return out;
 }

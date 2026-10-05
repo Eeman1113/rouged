@@ -15,6 +15,7 @@ export class SimPlayer {
   firing = false;
   dashing = false;
   sliding = false;
+  crouching = false;
   invuln: number = C.SPAWN_PROTECT;
   ghostT = 0;
   overclockT = 0;

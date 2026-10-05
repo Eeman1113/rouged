@@ -22,7 +22,8 @@ import { Brute } from './enemies/brute';
 import { Stalker } from './enemies/stalker';
 import { Spider } from './enemies/spider';
 import { Replica } from './enemies/replica';
-import { Warden } from './boss/warden';
+import { createWarden, Warden, WARDEN_SUBTITLES } from './boss/warden';
+import type { ZoneKind } from '../shared/protocol';
 import { TOTAL_ROOMS, composeEnemies, firstRoom, nextRoom, SpawnPlan } from './roomGraph';
 import { makeOffers, applyPick, rollRarity, pickPowerup } from './powerups';
 import * as combat from './combat';
@@ -42,6 +43,16 @@ export interface Mine { id: number; x: number; y: number; z: number; armT: numbe
 export interface Drop { id: number; kind: 'hp' | 'armor' | 'ammo' | 'scrap'; x: number; y: number; z: number; amount: number; life: number }
 export interface Strike { x: number; z: number; r: number; t: number; dmg: number; kind: 'mine' | 'rocket' | 'tesla' }
 export interface Hazard { x: number; z: number; r: number; dps: number; life: number; owner: string }
+/** Persistent boss hazard (lava lane, thorn hedge, static field…). Cycles warn → on → off unless period is 0. */
+export interface BossZone {
+  id: number; kind: ZoneKind; shape: 'rect' | 'circle';
+  x: number; z: number; w: number; d: number; // rect: full extents; circle: w = radius
+  dps: number; maxY: number; // hurts players standing below maxY
+  state: 'warn' | 'on' | 'off'; t: number; // time left in state
+  warn: number; on: number; off: number; // cycle lengths (on <= 0 → stays on forever)
+  life: number; tickT: number;
+}
+export interface Shockwave { x: number; z: number; r: number; r1: number; speed: number; h: number; dmg: number; hit: Set<string>; band: number }
 
 interface FlowField { t: number; dist: Int16Array }
 
@@ -113,6 +124,11 @@ export class Run {
   trueEnding = false;
   trialT = -1;
   shieldHitT = new Map<number, number>();
+  zones: BossZone[] = [];
+  shockwaves: Shockwave[] = [];
+  timers: { t: number; fn: () => void }[] = [];
+  /** room clear is held until this time (boss death cinematic) */
+  holdClearUntil = -1;
 
   constructor(public host: RunHost, opts: RunOptions) {
     this.id = 'run' + (++RUN_COUNTER) + '_' + Math.floor(Math.random() * 1e6).toString(36);
@@ -231,6 +247,7 @@ export class Run {
     p.dashing = m.dashing;
     if (m.sliding && !p.sliding) p.slideHit.clear();
     p.sliding = m.sliding;
+    p.crouching = !!m.crouch;
   }
 
   // ───────────────────────────── run flow ─────────────────────────────
@@ -265,6 +282,10 @@ export class Run {
     this.gauntletBackSpawned = false;
     this.frenzy = [...this.players.values()].some((p) => p.mods.frenzy);
     this.strikes = [];
+    this.zones = [];
+    this.shockwaves = [];
+    this.timers = [];
+    this.holdClearUntil = -1;
     this.trialT = -1;
     this.mutator = desc.mutator;
     const past = Math.max(0, desc.index - (C.EXTRACT_FROM - 1));
@@ -361,11 +382,10 @@ export class Run {
       case 'boss': {
         this.state = 'boss';
         const variant = desc.biome;
-        const w = new Warden(this.nextId++, 0, -12, this, variant, Math.pow(C.BOSS_HP_SCALE, n - 1));
+        const w = createWarden(this.nextId++, 0, -12, this, variant, Math.pow(C.BOSS_HP_SCALE, n - 1));
         this.enemies.set(w.id, w);
         this.boss = w;
-        const TITLES = ['WARDEN OF THE FOUNDRY', 'WARDEN OF THE ARCHIVE', 'WARDEN OF THE CORE', 'WARDEN OF THE NURSERY', 'WARDEN OF THE CANOPY', 'WARDEN OF THE FRONT', 'IT WAS ALWAYS HERE'];
-        this.emit({ e: 'bossIntro', name: w.name, title: TITLES[variant] ?? 'WARDEN' });
+        this.emit({ e: 'bossIntro', name: w.name, title: WARDEN_SUBTITLES[variant] ?? 'WARDEN' });
         break;
       }
       default: break;
@@ -451,6 +471,8 @@ export class Run {
     this.projectiles = [];
     this.mines = [];
     this.roomTimer = -1;
+    this.endZones();
+    this.shockwaves = [];
     for (const p of this.players.values()) if (isBoss && p.mods.immortal) p.phoenixUsed = false;
     if (isBoss && this.room.index === C.FINAL_ROOM - 1 && !this.trueEnding) {
       // THE HANDLER is down. For a moment, nothing runs.
@@ -548,8 +570,100 @@ export class Run {
 
   /** A telegraphed ground strike: shown now, lands after `delay`. */
   strike(x: number, z: number, r: number, delay: number, dmg: number, kind: Strike['kind']) {
+    const hw = this.geo ? this.geo.w / 2 - 0.5 : 99, hd = this.geo ? this.geo.d / 2 - 0.5 : 99;
+    x = Math.max(-hw, Math.min(hw, x)); z = Math.max(-hd, Math.min(hd, z));
     this.strikes.push({ x, z, r, t: delay, dmg, kind });
     this.emit({ e: 'telegraph', x, z, r, t: delay });
+  }
+
+  // ───────────────────────────── boss mechanics ─────────────────────────────
+
+  /** Run fn after `delay` sim seconds (cleared on room change). */
+  after(delay: number, fn: () => void) { this.timers.push({ t: this.time + delay, fn }); }
+
+  /** Telegraph decal for clients (pure visual: the move itself does the damage). */
+  tell(ev: Omit<Extract<GameEvent, { e: 'bossTell' }>, 'e'>) { this.emit({ e: 'bossTell', ...ev }); }
+
+  /** Expanding ground ring; jump over it. */
+  shockwave(x: number, z: number, r0: number, r1: number, speed: number, dmg: number, h = 0.55, hue?: number) {
+    this.shockwaves.push({ x, z, r: r0, r1, speed, h, dmg, hit: new Set(), band: 0.75 });
+    this.emit({ e: 'shockwave', x, z, r0, r1, speed, h, hue });
+  }
+
+  addZone(z: { kind: ZoneKind; shape: 'rect' | 'circle'; x: number; z: number; w: number; d?: number; dps: number; maxY?: number; warn?: number; on?: number; off?: number; life?: number }): number {
+    const id = this.nextId++;
+    const zone: BossZone = {
+      id, kind: z.kind, shape: z.shape, x: z.x, z: z.z, w: z.w, d: z.d ?? z.w, dps: z.dps, maxY: z.maxY ?? 0.4,
+      state: 'warn', t: z.warn ?? 1.2, warn: z.warn ?? 1.2, on: z.on ?? 0, off: z.off ?? 0, life: z.life ?? 9999, tickT: 0,
+    };
+    this.zones.push(zone);
+    this.emitZone(zone, 'warn');
+    return id;
+  }
+
+  private emitZone(z: BossZone, state: 'warn' | 'on' | 'off' | 'end') {
+    this.emit({ e: 'zone', id: z.id, kind: z.kind, shape: z.shape, x: z.x, z: z.z, w: z.w, d: z.d, state, t: state === 'end' ? 0 : z.t });
+  }
+
+  endZones(filter?: (z: BossZone) => boolean) {
+    const keep: BossZone[] = [];
+    for (const z of this.zones) { if (!filter || filter(z)) this.emitZone(z, 'end'); else keep.push(z); }
+    this.zones = keep;
+  }
+
+  inZone(z: BossZone, x: number, zz: number, pad = 0): boolean {
+    if (z.shape === 'circle') return Math.hypot(x - z.x, zz - z.z) < z.w + pad;
+    return Math.abs(x - z.x) < z.w / 2 + pad && Math.abs(zz - z.z) < z.d / 2 + pad;
+  }
+
+  /** Standing height of a player (ducking under beams). */
+  playerTop(p: SimPlayer): number { return p.y + (p.sliding || p.crouching ? C.CROUCH_HEIGHT : C.PLAYER_HEIGHT); }
+
+  updateBossMechanics(dt: number) {
+    if (this.timers.length) {
+      const due = this.timers.filter((t) => t.t <= this.time);
+      if (due.length) { this.timers = this.timers.filter((t) => t.t > this.time); for (const t of due) t.fn(); }
+    }
+    if (this.shockwaves.length) {
+      const keep: Shockwave[] = [];
+      for (const w of this.shockwaves) {
+        w.r += w.speed * dt;
+        if (w.r > w.r1) continue;
+        for (const p of this.targets()) {
+          if (w.hit.has(p.id) || p.y > w.h) continue;
+          const d = Math.hypot(p.x - w.x, p.z - w.z);
+          if (Math.abs(d - w.r) < w.band + C.PLAYER_RADIUS) {
+            w.hit.add(p.id);
+            this.damagePlayer(p, w.dmg, w.x, 0.3, w.z, false, this.boss, { x: ((p.x - w.x) / (d || 1)) * 9, y: 6, z: ((p.z - w.z) / (d || 1)) * 9 });
+          }
+        }
+        keep.push(w);
+      }
+      this.shockwaves = keep;
+    }
+    if (this.zones.length) {
+      const keep: BossZone[] = [];
+      for (const z of this.zones) {
+        z.life -= dt;
+        if (z.life <= 0) { this.emitZone(z, 'end'); continue; }
+        z.t -= dt;
+        if (z.t <= 0) {
+          if (z.state === 'warn') { z.state = 'on'; z.t = z.on > 0 ? z.on : 1e9; }
+          else if (z.state === 'on') { z.state = z.off > 0 ? 'off' : 'on'; z.t = z.off > 0 ? z.off : 1e9; }
+          else { z.state = 'warn'; z.t = z.warn; }
+          this.emitZone(z, z.state);
+        }
+        if (z.state === 'on' && z.dps > 0) {
+          z.tickT -= dt;
+          if (z.tickT <= 0) {
+            z.tickT = 0.25;
+            for (const p of this.targets()) if (p.y < z.maxY && this.inZone(z, p.x, p.z)) this.damagePlayer(p, z.dps * 0.25, p.x, 0.2, p.z, false, null);
+          }
+        }
+        keep.push(z);
+      }
+      this.zones = keep;
+    }
   }
 
   shieldHit(e: Enemy) {
@@ -776,6 +890,7 @@ export class Run {
     this.updateHazards(dt);
     this.updateDrops(dt);
     this.updateStrikes(dt);
+    this.updateBossMechanics(dt);
     combat.updateTesla(this, dt);
     if (this.trialT > 0 && !this.cleared) {
       this.trialT -= dt;
@@ -806,7 +921,7 @@ export class Run {
         }
       }
       const pending = this.spawnQueue.length > 0 || (this.room.kind === 'gauntlet' && !this.gauntletBackSpawned);
-      if (!pending && this.enemies.size === 0 && this.tickN > 5) {
+      if (!pending && this.enemies.size === 0 && this.tickN > 5 && this.time >= this.holdClearUntil) {
         if (this.room.kind === 'arena' && this.wave < this.waves.length) this.nextWave();
         else this.onRoomCleared();
       }

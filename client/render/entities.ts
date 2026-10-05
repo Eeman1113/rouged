@@ -7,6 +7,8 @@ import { POWERUP_BY_ID, RARITY_COLOR } from '../../shared/powerupDefs';
 import type { Light } from '../../shared/mapData';
 import { getEnemySprites, getProjectileSprite, getMineSprite, getPickupSprite, getPedestalIcon, getScrapSprite, EnemySpriteSet } from './sprites';
 import { tex, textCanvas } from './tex';
+import { bossFrame, bossDeadFrame, bossArt, clipInfo, prewarmBoss } from './art/boss';
+import { FH as BOSS_FH } from './art/boss/rig';
 
 const glowTexCanvas = (() => {
   const c = document.createElement('canvas');
@@ -35,7 +37,7 @@ const EYE_COLOR: Record<EnemyType, THREE.Color> = {
   drone: new THREE.Color(6, 0.4, 0.2), grunt: new THREE.Color(6, 0.3, 0.2), brute: new THREE.Color(6, 2.2, 0.3), stalker: new THREE.Color(6, 0.2, 0.2),
   spider: new THREE.Color(6, 2.4, 0.4), replica: new THREE.Color(0.6, 3.5, 4), warden: new THREE.Color(7, 1.2, 0.3),
   leech: new THREE.Color(6, 0.6, 0.6), sentinel: new THREE.Color(2, 3.5, 6), bomber: new THREE.Color(6, 2, 0.2), mortar: new THREE.Color(6, 1.5, 0.3),
-  bulwark: new THREE.Color(6, 2.6, 0.4), wraith: new THREE.Color(1.5, 5, 4),
+  bulwark: new THREE.Color(6, 2.6, 0.4), wraith: new THREE.Color(1.5, 5, 4), echo: new THREE.Color(0.4, 6, 1.5),
 };
 
 export interface EnemyView {
@@ -57,7 +59,28 @@ export interface EnemyView {
   x: number; y: number; z: number;
   spawnFx: number;
   whisperT: number;
+  boss?: BossExtra;
 }
+
+/** Extra render state for Wardens (and the Handler's echoes). */
+interface BossExtra {
+  v: number;
+  core: THREE.Sprite;
+  shield: THREE.Mesh;
+  beam: THREE.Mesh;
+  beamCore: THREE.Mesh;
+  feed: THREE.Line;
+  glow: [THREE.Color, THREE.Color];
+  painT: number;
+  px: number; pz: number; speed: number;
+  deathT: number;
+  loopT: number;
+  lastClip: string;
+}
+
+const BOSS_HUE = [new THREE.Color(2.6, 0.9, 0.2), new THREE.Color(2.6, 0.4, 0.8), new THREE.Color(2.6, 0.4, 0.35), new THREE.Color(0.7, 2.6, 0.5), new THREE.Color(0.9, 2.6, 0.7), new THREE.Color(2.6, 1.2, 0.25), new THREE.Color(0.4, 2.6, 0.9)];
+export function bossHue(v: number): THREE.Color { return BOSS_HUE[Math.max(0, Math.min(6, v | 0))]; }
+const hexColor = (h: number, k = 4): THREE.Color => new THREE.Color(((h >> 16) & 255) / 255 * k, ((h >> 8) & 255) / 255 * k, (h & 255) / 255 * k);
 
 export class EntityViews {
   group = new THREE.Group();
@@ -108,7 +131,8 @@ export class EntityViews {
   }
 
   private makeEnemy(s: EnemySnap, biome: number): EnemyView {
-    const sprites = getEnemySprites(s.type, s.type === 'warden' ? biome : s.elite ? 1 : 0);
+    if (s.type === 'warden' || s.type === 'echo') return this.makeBoss(s, s.type === 'echo' ? s.v ?? 6 : biome);
+    const sprites = getEnemySprites(s.type, s.elite ? 1 : 0);
     const def = ENEMIES[s.type];
     const worldH = sprites.worldH;
     const worldW = (worldH * sprites.w) / sprites.h;
@@ -121,7 +145,7 @@ export class EntityViews {
     xray.renderOrder = 10;
     xray.visible = false;
     const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: EYE_COLOR[s.type], blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-    const es = s.type === 'warden' ? 1.2 : s.type === 'brute' ? 0.5 : 0.28;
+    const es = s.type === 'brute' ? 0.5 : 0.28;
     eye.scale.set(es, es, 1);
     eye.position.y = def.headY;
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(def.radius * 2.6, def.radius * 2.6), new THREE.MeshBasicMaterial({ map: tex(shadowTex), transparent: true, depthWrite: false }));
@@ -135,6 +159,137 @@ export class EntityViews {
       id: s.id, type: s.type, sprites, group, mesh, mat, xray, eye, shadow, laser: null, animT: Math.random() * 3, flash: 0,
       dead: false, deadT: 0, last: s, x: s.x, y: s.y, z: s.z, spawnFx: 1, whisperT: 0,
     };
+  }
+
+  private makeBoss(s: EnemySnap, v: number): EnemyView {
+    const art = bossArt(v);
+    const def = ENEMIES[s.type];
+    const H = (art.worldH * BOSS_FH) / 112, W = H;
+    const geo = new THREE.PlaneGeometry(W, H);
+    geo.translate(0, H / 2 - (3 / BOSS_FH) * H, 0);
+    const idle = bossFrame(v, 'idle', 0);
+    const mat = new THREE.MeshBasicMaterial({ map: tex(idle), transparent: true, alphaTest: 0.5, side: THREE.DoubleSide, fog: true });
+    const mesh = new THREE.Mesh(geo, mat);
+    const xmat = new THREE.MeshBasicMaterial({ map: tex(idle), transparent: true, opacity: 0.35, color: new THREE.Color(1.5, 0.3, 2), depthTest: false, depthWrite: false, alphaTest: 0.5, fog: false });
+    const xray = new THREE.Mesh(geo, xmat);
+    xray.renderOrder = 10; xray.visible = false;
+    const glow: [THREE.Color, THREE.Color] = [hexColor(art.glow[0], 2.5), hexColor(art.glow[1], 2.5)];
+    const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: glow[0], blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    eye.scale.set(1.6, 1.6, 1);
+    eye.position.y = def.headY;
+    const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: glow[1], blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+    core.position.y = s.wy ?? def.headY;
+    const shield = new THREE.Mesh(new THREE.SphereGeometry(H * 0.52, 20, 14), new THREE.MeshBasicMaterial({ color: glow[1].clone().multiplyScalar(0.25), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, wireframe: false }));
+    shield.position.y = H * 0.45;
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(def.radius * 3.4, def.radius * 3.4), new THREE.MeshBasicMaterial({ map: tex(shadowTex), transparent: true, depthWrite: false }));
+    shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02;
+    const bgeo = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true); bgeo.rotateX(Math.PI / 2);
+    const beam = new THREE.Mesh(bgeo, new THREE.MeshBasicMaterial({ color: bossHue(v), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const beamCore = new THREE.Mesh(bgeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.2, 2), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+    beam.visible = false; beamCore.visible = false;
+    const feed = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: bossHue(v), transparent: true, blending: THREE.AdditiveBlending }));
+    feed.visible = false;
+    const group = new THREE.Group();
+    group.add(mesh, xray, eye, core);
+    this.group.add(group, shadow, shield, beam, beamCore, feed);
+    if (s.type === 'warden') prewarmBoss(v, [0]);
+    const view: EnemyView = {
+      id: s.id, type: s.type, sprites: getEnemySprites('warden', v), group, mesh, mat, xray, eye, shadow, laser: null, animT: 0, flash: 0,
+      dead: false, deadT: 0, last: s, x: s.x, y: s.y, z: s.z, spawnFx: s.type === 'echo' ? 1 : 0, whisperT: 0,
+      boss: { v, core, shield, beam, beamCore, feed, glow, painT: 0, px: s.x, pz: s.z, speed: 0, deathT: -1, loopT: 0, lastClip: '' },
+    };
+    return view;
+  }
+
+  /** Choose a boss animation frame from the snapshot's move/stage/progress. */
+  private bossPick(v: EnemyView, dt: number): HTMLCanvasElement {
+    const b = v.boss!, s = v.last;
+    const dmg = Math.max(0, Math.min(2, (s.phase ?? 1) - 1));
+    const move = s.move ?? 'idle';
+    let clip = 'idle', i = 0;
+    const T = (c: string, t: number): number => Math.floor(Math.max(0, Math.min(0.999, t)) * clipInfo(b.v, c).n);
+    const loop = (c: string, fps: number): number => Math.floor(b.loopT * fps) % clipInfo(b.v, c).n;
+    if (b.deathT >= 0) { clip = 'death'; i = Math.min(clipInfo(b.v, 'death').n - 1, Math.floor((b.deathT / 2.6) * clipInfo(b.v, 'death').n)); }
+    else if (move === 'intro') { clip = 'intro'; i = T(clip, s.moveT ?? 0); }
+    else if (move === 'transition') { clip = 'trans'; i = T(clip, s.moveT ?? 0); }
+    else if (move === 'break') { clip = 'break'; const t = s.moveT ?? 0; i = t < 0.18 ? T(clip, t / 0.18 * 0.5) : 4 + (Math.floor(b.loopT * 6) % 4); }
+    else if (move === 'finish') { clip = 'finish'; i = loop(clip, 7); }
+    else if (move === 'idle') {
+      if (b.painT > 0) { clip = 'pain'; i = Math.min(2, Math.floor((1 - b.painT / 0.22) * 3)); }
+      else if (b.speed > 0.9) { clip = 'move'; i = loop(clip, Math.min(12, 5 + b.speed * 1.2)); }
+      else { clip = 'idle'; i = loop(clip, 5); }
+    } else {
+      clip = `${move}.${s.moveStage ?? 0}`;
+      const info = clipInfo(b.v, clip);
+      i = info.loop ? Math.floor(b.loopT * 11) % info.n : T(clip, s.moveT ?? 0);
+    }
+    if (clip !== b.lastClip) { b.lastClip = clip; }
+    void dt;
+    return bossFrame(b.v, clip, i, dmg);
+  }
+
+  private updateBoss(v: EnemyView, dt: number, tmp: THREE.Color) {
+    const b = v.boss!, s = v.last;
+    b.loopT += dt;
+    if (b.painT > 0) b.painT -= dt;
+    const sp = Math.hypot(v.x - b.px, v.z - b.pz) / Math.max(1e-3, dt);
+    b.speed += (sp - b.speed) * Math.min(1, dt * 8);
+    b.px = v.x; b.pz = v.z;
+    const frame = this.bossPick(v, dt);
+    const t = tex(frame);
+    if (v.mat.map !== t) { v.mat.map = t; (v.xray.material as THREE.MeshBasicMaterial).map = t; }
+    // weak point glow: pulses hard when open
+    const core = s.core ?? 0;
+    const cm = b.core.material as THREE.SpriteMaterial;
+    b.core.position.y = s.wy ?? ENEMIES[v.type].headY;
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * (core > 0.5 ? 16 : 5));
+    cm.opacity = core > 0.05 ? Math.min(0.75, core * (0.35 + pulse * 0.4)) : 0;
+    const cs = 0.6 + core * 1.5;
+    b.core.scale.set(cs, cs, 1);
+    // eye glow intensifies on the wind-up
+    (v.eye.material as THREE.SpriteMaterial).opacity = Math.min(0.85, 0.3 + s.tell * 0.5 + Math.sin(this.time * 8 + v.id) * 0.1);
+    const es = 0.9 + s.tell * 0.9;
+    v.eye.scale.set(es, es, 1);
+    // invulnerability bubble
+    const sh = s.shield ?? 0;
+    b.shield.position.set(v.x, v.y + (b.shield.geometry as THREE.SphereGeometry).parameters.radius * 0.85, v.z);
+    const smat = b.shield.material as THREE.MeshBasicMaterial;
+    smat.opacity = sh * (0.18 + 0.1 * Math.sin(this.time * 9));
+    b.shield.visible = sh > 0.02;
+    b.shield.scale.setScalar(1 + Math.sin(this.time * 3) * 0.02);
+    // beams
+    const bm = s.beam;
+    if (bm && bm.length >= 8) {
+      const a = new THREE.Vector3(bm[0], bm[1], bm[2]), c = new THREE.Vector3(bm[3], bm[4], bm[5]);
+      const len = a.distanceTo(c);
+      const live = bm[7] > 0.5;
+      const w = live ? bm[6] * (0.42 + Math.sin(this.time * 40) * 0.06) : 0.04 + Math.sin(this.time * 30) * 0.02;
+      for (const m of [b.beam, b.beamCore]) {
+        m.visible = true;
+        m.position.copy(a).add(c).multiplyScalar(0.5);
+        m.lookAt(c);
+        const k = m === b.beamCore ? 0.35 : 1;
+        m.scale.set(w * k, w * k, len);
+      }
+      (b.beam.material as THREE.MeshBasicMaterial).opacity = live ? 0.85 : 0.55 + Math.sin(this.time * 25) * 0.3;
+      b.beamCore.visible = live;
+      const fp = b.feed.geometry.getAttribute('position') as THREE.BufferAttribute;
+      fp.setXYZ(0, v.x, v.y + (s.wy ?? ENEMIES[v.type].headY), v.z); fp.setXYZ(1, a.x, a.y, a.z); fp.needsUpdate = true;
+      b.feed.visible = live;
+    } else { b.beam.visible = false; b.beamCore.visible = false; b.feed.visible = false; }
+    // lighting / tints
+    this.lightAt(v.x, v.y + 2, v.z, tmp);
+    tmp.multiplyScalar(1.1);
+    if (s.burning) tmp.r += 0.5 + Math.sin(this.time * 30) * 0.3;
+    if (s.move === 'break') { const p = 0.5 + Math.sin(this.time * 14) * 0.5; tmp.r += p * 0.6; tmp.g += p * 0.3; }
+    if (s.tell > 0.05 && s.move !== 'break') tmp.r += s.tell * 0.35;
+    if (v.flash > 0) { tmp.lerp(new THREE.Color(3, 3, 3), Math.min(1, v.flash) * 0.7); v.flash -= dt * 12; }
+    if (v.spawnFx > 0) { v.spawnFx -= dt * 2.2; tmp.setRGB(1 + v.spawnFx * 3, 1 + v.spawnFx * 3, 1 + v.spawnFx * 3); v.mesh.scale.set(Math.max(0.05, 1 - v.spawnFx * 0.9), 1 + v.spawnFx * 0.6, 1); } else v.mesh.scale.set(1, 1, 1);
+    if (v.type === 'echo') { tmp.multiplyScalar(0.8); tmp.g += 0.25 + Math.sin(this.time * 20 + v.id) * 0.1; }
+    v.mat.color.copy(tmp);
+    v.mat.opacity = 1 - s.cloak * 0.92;
+    v.mat.alphaTest = s.cloak > 0.4 ? 0.01 : 0.5;
+    v.eye.visible = s.cloak < 0.5;
   }
 
   /** Sync enemies from the interpolated snapshot. Returns ids that appeared this frame. */
@@ -157,6 +312,7 @@ export class EntityViews {
         // vanished without a kill event (e.g. room change) — just remove
         this.group.remove(v.group); this.group.remove(v.shadow);
         if (v.laser) this.group.remove(v.laser);
+        if (v.boss) this.removeBossExtras(v);
         this.enemies.delete(id);
       }
     }
@@ -165,7 +321,12 @@ export class EntityViews {
 
   hitFlash(id: number) {
     const v = this.enemies.get(id);
-    if (v) v.flash = 1;
+    if (v) { v.flash = v.boss ? 0.45 : 1; if (v.boss && v.boss.painT <= 0 && Math.random() < 0.3) v.boss.painT = 0.22; }
+  }
+
+  private removeBossExtras(v: EnemyView) {
+    const b = v.boss!;
+    this.group.remove(b.shield, b.beam, b.beamCore, b.feed);
   }
 
   /** Enemy died: becomes a persistent corpse. */
@@ -175,12 +336,18 @@ export class EntityViews {
     this.enemies.delete(id);
     v.dead = true;
     v.deadT = 0;
-    v.mat.map = tex(v.sprites.dead);
+    if (v.boss) {
+      // multi-stage death: the collapse / blast-apart clip plays, then the wreck stays
+      v.boss.deathT = 0;
+      v.boss.shield.visible = false; v.boss.beam.visible = false; v.boss.beamCore.visible = false; v.boss.feed.visible = false;
+      (v.boss.core.material as THREE.SpriteMaterial).opacity = 1;
+      if (v.type === 'echo') { v.boss.deathT = 2.6; }
+    } else v.mat.map = tex(v.sprites.dead);
     v.xray.visible = false;
     v.eye.visible = false;
     if (v.laser) { this.group.remove(v.laser); v.laser = null; }
     // knock the corpse along the shot direction a little
-    v.group.position.x += dx * 0.4; v.group.position.z += dz * 0.4;
+    if (!v.boss) { v.group.position.x += dx * 0.4; v.group.position.z += dz * 0.4; }
     v.group.position.y = 0;
     v.mat.opacity = 1;
     this.corpses.push(v);
@@ -200,6 +367,7 @@ export class EntityViews {
       v.group.position.set(v.x, v.y, v.z);
       v.shadow.position.set(v.x, 0.02, v.z);
       v.group.rotation.y = camYaw;
+      if (v.boss) { this.updateBoss(v, dt, tmp); continue; }
       const sp = v.sprites;
       let frame: HTMLCanvasElement;
       const a = s.anim;
@@ -245,6 +413,21 @@ export class EntityViews {
     for (const c of this.corpses) {
       c.deadT += dt;
       c.group.rotation.y = camYaw;
+      if (c.boss) {
+        const b = c.boss;
+        if (b.deathT >= 0 && b.deathT < 2.6) {
+          b.deathT += dt;
+          c.mat.map = tex(this.bossPick(c, dt));
+          const cm = b.core.material as THREE.SpriteMaterial;
+          cm.opacity = Math.max(0, 1 - b.deathT / 2.2) * (0.6 + Math.random() * 0.4);
+          const sc = 2 + b.deathT * 3; b.core.scale.set(sc, sc, 1);
+        } else if (b.deathT >= 2.6) {
+          b.deathT = -2;
+          c.mat.map = tex(c.type === 'echo' ? bossDeadFrame(6) : bossDeadFrame(b.v));
+          (b.core.material as THREE.SpriteMaterial).opacity = 0;
+          if (c.type === 'echo') c.group.visible = false;
+        }
+      }
       this.lightAt(c.group.position.x, 0.5, c.group.position.z, tmp);
       c.mat.color.copy(tmp).multiplyScalar(0.85);
     }
@@ -254,6 +437,9 @@ export class EntityViews {
       const x = p.snap.x + p.snap.vx * p.t, y = p.snap.y + p.snap.vy * p.t, z = p.snap.z + p.snap.vz * p.t;
       p.sprite.position.set(x, y, z);
       p.glow.position.set(x, y, z);
+      // don't let a volley sliding past the lens bloom out the whole screen
+      const cd = Math.hypot(x - camPos.x, y - camPos.y, z - camPos.z);
+      (p.glow.material as THREE.SpriteMaterial).opacity = cd < 8 ? 0.08 + (cd / 8) * 0.52 : 0.6;
     }
     for (const m of this.mines.values()) {
       (m.glow.material as THREE.SpriteMaterial).opacity = m.armed ? (Math.sin(this.time * 14) > 0 ? 1 : 0.15) : 0.3;

@@ -18,7 +18,7 @@ import {
 } from './art/textures';
 
 // ------------------------------------------------------------------ enemies
-export type EnemyType = 'drone' | 'grunt' | 'brute' | 'stalker' | 'spider' | 'replica' | 'warden'
+export type EnemyType = 'drone' | 'grunt' | 'brute' | 'stalker' | 'spider' | 'replica' | 'warden' | 'echo'
   | 'leech' | 'sentinel' | 'bomber' | 'mortar' | 'bulwark' | 'wraith';
 export interface EnemySpriteSet {
   w: number; h: number;
@@ -49,6 +49,7 @@ function enemyFrame(def: EnemyDef, act: Act, f: number, seed: number): HTMLCanva
 }
 
 export function getEnemySprites(type: EnemyType, variant = 0): EnemySpriteSet {
+  if (type === 'echo') { type = 'warden'; variant = 6; }
   const v = Math.max(0, Math.min(6, Math.floor(variant || 0)));
   const vk = type === 'warden' ? v : v === 1 ? 1 : 0;
   return memo(`enemy:${type}:${vk}`, () => {
@@ -70,6 +71,11 @@ export function getEnemySprites(type: EnemyType, variant = 0): EnemySpriteSet {
     };
   });
 }
+
+// ------------------------------------------------------------------ boss animation (art/boss/*)
+// 128x128 frames per clip: idle / move / pain / intro / trans / break / finish / death and
+// `${move}.${stage}` (0 wind-up, 1 strike, 2 recovery). Frames are generated lazily and cached.
+export { bossFrame as getBossFrame, bossDeadFrame as getBossDeadFrame, clipInfo as getBossClip, prewarmBoss, BOSS_MOVES } from './art/boss';
 
 // ------------------------------------------------------------------ weapons
 export type WeaponId = 'pulse' | 'breacher' | 'lance' | 'ripper';

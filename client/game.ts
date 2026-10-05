@@ -20,7 +20,8 @@ import { music } from './audio/music';
 import { metaLevel } from './meta';
 import { nextFragment, ENEMY_WHISPERS, ANOMALY_TEXTS, terminalText, Fragment } from './story/fragments';
 import { handlerPhase } from './story/handlerLines';
-import { projColor } from './render/entities';
+import { projColor, bossHue } from './render/entities';
+import { prewarmBoss } from './render/sprites';
 import { levelFromXp } from '../server/progression';
 
 const ENEMY_NAMES: Record<string, string> = { drone: 'DRONE', grunt: 'GRUNT', brute: 'BRUTE', stalker: 'STALKER', spider: 'SPIDER', replica: 'REPLICA', warden: 'WARDEN', leech: 'LEECH', sentinel: 'SENTINEL', bomber: 'BOMBER', mortar: 'MORTAR', bulwark: 'BULWARK', wraith: 'WRAITH' };
@@ -466,7 +467,7 @@ export class Game {
       case 'explosion': {
         const big = e.kind === 'boss';
         const size = big ? e.r * 0.9 : e.r * 1.3;
-        if (e.kind === 'tesla') { w.fx.ring(e.x, 0, e.z, e.r, new THREE.Color(1.5, 3, 6)); sfx.teslaArc({ x: e.x, y: e.y, z: e.z }); break; }
+        if (e.kind === 'tesla') { w.fx.ring(e.x, 0, e.z, e.r, new THREE.Color(0.5, 1.0, 2.0)); sfx.teslaArc({ x: e.x, y: e.y, z: e.z }); break; }
         w.fx.explosion(e.x, e.y, e.z, size);
         w.r.flashLight(e.x, e.y + 0.5, e.z, 0xff8a3a, big ? 60 : 30, e.r * 4, 0.3);
         if (big) w.fx.ring(e.x, 0, e.z, e.r, new THREE.Color(4, 1.5, 0.4));
@@ -533,6 +534,7 @@ export class Game {
         { const wv = WARDEN_VOICE[this.room?.biome ?? 0]; setTimeout(() => w.cast.say('warden', wv.intro[Math.floor(Math.random() * wv.intro.length)], 3), 1700); }
         if (this.room?.biome === 6) setTimeout(() => w.say('handlerBoss', this.runCount, 5, 0), 5200);
         w.shake(10);
+        w.lookTarget = new THREE.Vector3(0, 4.5, -12); w.lookLockT = 1.6;
         w.say('bossIntro', this.runCount, 3, 0);
         this.lastPhase = 1;
         break;
@@ -540,6 +542,7 @@ export class Game {
       case 'bossPhase': {
         if (e.phase !== this.lastPhase) {
           this.lastPhase = e.phase;
+          prewarmBoss(this.room?.biome ?? 0, [Math.min(2, e.phase - 1)]);
           sfx.wardenRoar();
           w.shake(14);
           w.flash(0.4);
@@ -570,6 +573,56 @@ export class Game {
       case 'runEnd': this.finish(e.summary); break;
       case 'chat': w.hud.chat(e.text); break;
       case 'telegraph': w.fx.telegraph(e.x, e.z, e.r, e.t); break;
+      case 'bossMove': this.onBossMove(e); break;
+      case 'bossTell': w.bfx.tell(e); break;
+      case 'shockwave': {
+        w.bfx.shockwave(e.x, e.z, e.r0, e.r1, e.speed, e.h, e.hue);
+        const d = Math.hypot(e.x - w.player.x, e.z - w.player.z);
+        w.shake(Math.max(2, 10 - d * 0.3));
+        this.rumble(0.7, 0.2, 260);
+        sfx.bruteStomp({ x: e.x, y: 0, z: e.z });
+        w.bfx.burst(e.x, 0.3, e.z, 14, new THREE.Color(1.4, 1.1, 0.9), 9);
+        break;
+      }
+      case 'zone': this.onZone(e); break;
+      case 'bossBreak': {
+        if (e.on) {
+          w.hud.announcer.show('BROKEN', 'l4', 'WEAK POINT EXPOSED · +50% DAMAGE', true);
+          sfx.armorBreak(); sfx.wardenRoar();
+          w.slowmo(0.35, 0.35); w.flash(0.35); w.shake(10);
+          this.rumble(1, 0.6, 400);
+          w.bfx.burst(e.x, e.y, e.z, 30, bossHue(this.room?.biome ?? 0).clone().multiplyScalar(0.6), 10);
+          w.r.flashLight(e.x, e.y, e.z, 0xffc070, 60, 18, 0.4);
+        }
+        break;
+      }
+      case 'bossTransition': {
+        w.hud.announcer.show(e.name, 'l4', 'PHASE ' + 'I'.repeat(e.phase), true);
+        music.silence(Math.min(2, e.t));
+        w.slowmo(0.5, 0.4);
+        w.tint(e.phase === 3 ? '#ff0000' : '#ff6a00', 0.22);
+        const v = w.ents.enemies.get(e.enemy);
+        if (v) { w.lookTarget = new THREE.Vector3(v.x, v.y + 3.5, v.z); w.lookLockT = 0.7; w.bfx.burst(v.x, 2, v.z, 40, bossHue(this.room?.biome ?? 0).clone().multiplyScalar(0.7), 12); }
+        setTimeout(() => { sfx.explosion(v ? { x: v.x, y: 2, z: v.z } : undefined, 2.5); w.shake(16); }, 900);
+        break;
+      }
+      case 'bossDying': {
+        w.slowmo(0.9, 0.3); w.flash(0.8); w.shake(18); w.glitch(0.6);
+        music.silence(e.t + 3);
+        sfx.wardenRoar(); sfx.armorBreak();
+        this.rumble(1, 1, 900);
+        w.lookTarget = new THREE.Vector3(e.x, e.y, e.z); w.lookLockT = 0.9;
+        w.hud.announcer.show(this.room?.biome === 6 ? 'IT IS NOT FIGHTING BACK' : 'FINISH IT', 'gold big', 'GET CLOSE · GLORY KILL', true);
+        break;
+      }
+      case 'bossSay': {
+        const v = w.ents.enemies.get(e.enemy);
+        if (v) w.hud.pops.spawn(v.x, v.y + 8.2, v.z, e.text, 'whisper', 2.4, 0.25);
+        w.hud.setBossMove(e.text, 2.2);
+        sfx.terminalBeep();
+        break;
+      }
+      case 'bossEnrage': { w.hud.announcer.show('ENRAGED', 'l4', 'IT IS DONE WAITING', true); w.tint('#ff0000', 0.6); sfx.wardenRoar(); break; }
       case 'shop': if (mine(e.id)) { this.shop = e.items; w.ents.showShop(e.items); } break;
       case 'buy': {
         if (mine(e.id)) {
@@ -691,12 +744,54 @@ export class Game {
       if (p) w.hud.killfeed.push(p.name, ENEMY_NAMES[type], e.head ? ['HEADSHOT'] : [], false);
     }
     if (e.glory) w.slowmo(C.SLOWMO_GLORY_KILL, 0.35);
+    if (type === 'echo') { w.bfx.burst(e.x, e.y + 2, e.z, 24, new THREE.Color(0.6, 3, 1.2), 9); sfx.staticBurst(0.25); }
     if (type === 'warden') {
-      w.slowmo(1.2, 0.2); w.flash(1); w.shake(20);
+      // death cinematic: slow-mo, white flash, the camera holds on the wreck while it blows apart
+      w.slowmo(1.6, 0.25); w.flash(1); w.shake(22); w.glitch(0.5);
+      w.lookTarget = new THREE.Vector3(e.x, e.y + 1, e.z); w.lookLockT = 1.4;
+      music.silence(3.5);
+      const hue = bossHue(this.room?.biome ?? 0).clone().multiplyScalar(0.6);
+      w.bfx.burst(e.x, e.y + 2, e.z, 70, hue, 14);
+      for (let i = 1; i <= 5; i++) setTimeout(() => { w.bfx.burst(e.x + (Math.random() - 0.5) * 4, 1 + Math.random() * 4, e.z + (Math.random() - 0.5) * 3, 20, hue, 10); w.r.flashLight(e.x, 3, e.z, 0xffd0a0, 50, 30, 0.35); }, i * 380);
       const b = this.room?.biome ?? 0;
       if (b !== 6) w.cast.say('warden', WARDEN_VOICE[b].death[0], 3);
       else setTimeout(() => w.say('handlerBossDeath', this.runCount, 6, 0), 400);
     }
+  }
+
+  private onBossMove(e: Extract<GameEvent, { e: 'bossMove' }>) {
+    const w = this.world;
+    const v = w.ents.enemies.get(e.enemy);
+    const pos = v ? { x: v.x, y: v.y + 3, z: v.z } : undefined;
+    if (e.name !== '...') w.hud.setBossMove(e.name, 2.6);
+    if (!pos) return;
+    const id = e.move;
+    if (['leap', 'charge', 'treads', 'scuttle', 'shears', 'hammer'].includes(id)) sfx.bruteRoar(pos);
+    else if (['vent', 'gaze', 'lash', 'lance', 'scanHigh', 'scanLow', 'gatling'].includes(id)) { sfx.teslaArc(pos); sfx.stalkerChirp(pos); }
+    else if (['brood', 'mimic', 'memory', 'rally', 'fracture', 'overgrowth', 'cradle'].includes(id)) sfx.staticBurst(0.35);
+    else if (['snipe', 'correction', 'cannon'].includes(id)) sfx.stalkerChirp(pos);
+    else if (id !== 'wait') sfx.droneWhine(pos);
+  }
+
+  private onZone(e: Extract<GameEvent, { e: 'zone' }>) {
+    const w = this.world;
+    w.bfx.zone(e);
+    if (e.kind === 'dark' && e.state === 'warn') {
+      // the lights go out (each time darker)
+      w.map.lightBase = w.map.lightBase.map((x) => x * 0.4);
+      for (const l of w.map.roomLights) l.intensity *= 0.4;
+      w.r.ambient.intensity *= 0.55;
+      w.ents.ambient *= 0.6;
+      w.map.flickerAmt = Math.max(w.map.flickerAmt, 0.6);
+      sfx.staticBurst(0.6); w.glitch(0.5);
+    }
+    if (e.kind === 'invert' && e.state === 'warn') {
+      const c = w.r.canvas;
+      c.style.filter = 'invert(1) hue-rotate(180deg)';
+      sfx.staticBurst(1); w.glitch(1);
+      setTimeout(() => { if (c.style.filter) c.style.filter = 'hue-rotate(150deg) saturate(1.25)'; }, 1600);
+    }
+    if (e.state === 'on' && (e.kind === 'lava' || e.kind === 'static') && Math.hypot(e.x - w.player.x, e.z - w.player.z) < 20) sfx.explosion({ x: e.x, y: 0, z: e.z }, 0.6);
   }
 
   gainXp(n: number) {
@@ -887,7 +982,9 @@ export class Game {
       if (this.killedIds.has(eb.id)) continue;
       const ea = amap.get(eb.id);
       if (!ea) { if (k >= 0.99 || a === b) out.push(eb); continue; }
-      out.push({ ...eb, x: ea.x + (eb.x - ea.x) * k, y: ea.y + (eb.y - ea.y) * k, z: ea.z + (eb.z - ea.z) * k });
+      const o = { ...eb, x: ea.x + (eb.x - ea.x) * k, y: ea.y + (eb.y - ea.y) * k, z: ea.z + (eb.z - ea.z) * k };
+      if (eb.moveT !== undefined && ea.moveT !== undefined && ea.move === eb.move && ea.moveStage === eb.moveStage && eb.moveT >= ea.moveT) o.moveT = ea.moveT + (eb.moveT - ea.moveT) * k;
+      out.push(o);
     }
     const pa = new Map(a.s.players.map((p) => [p.id, p]));
     for (const pb of b.s.players) {
@@ -921,7 +1018,8 @@ export class Game {
       if (v.spawnFx > 0.5) continue;
       const def = ENEMIES[v.type];
       const hs = C.HITBOX_SCALE;
-      const th = rayVsSphere(o.x, o.y, o.z, d.x, d.y, d.z, v.x, v.y + def.headY, v.z, def.headR * hs);
+      const boss = v.type === 'warden' || v.type === 'echo';
+      const th = rayVsSphere(o.x, o.y, o.z, d.x, d.y, d.z, v.x, v.y + (boss ? v.last.wy ?? def.headY : def.headY), v.z, def.headR * hs * (boss ? 1 + (v.last.core ?? 0) * 0.5 : 1));
       const tb = def.flying
         ? rayVsSphere(o.x, o.y, o.z, d.x, d.y, d.z, v.x, v.y + def.height * 0.5, v.z, def.radius * hs * 1.2)
         : rayVsCylinder(o.x, o.y, o.z, d.x, d.y, d.z, v.x, v.z, v.y, v.y + def.headY - def.headR * 0.6, def.radius * hs);
@@ -1134,7 +1232,15 @@ export class Game {
       select(list[(i + (inp.pressed.has('wnext') ? 1 : list.length - 1)) % list.length]);
     }
 
-    // movement (prediction)
+    // bosses are solid: you can't stand inside a Warden
+    lp.dynamicBoxes.length = 0;
+    for (const v of w.ents.enemies.values()) {
+      if (v.type !== 'warden' && v.type !== 'brute' && v.type !== 'bulwark') continue;
+      const d = ENEMIES[v.type];
+      const r = d.radius * 0.85;
+      lp.dynamicBoxes.push({ x0: v.x - r, y0: v.y, z0: v.z - r, x1: v.x + r, y1: v.y + d.height * 0.8, z1: v.z + r, mat: 'crate' });
+    }
+        // movement (prediction)
     const alive = this.alive && this.started;
     if (alive && !this.paused) {
       const ax = inp.axes();
@@ -1197,7 +1303,9 @@ export class Game {
     w.ents.update(fxDt, lp.yaw, w.r.camera.position, marked);
     w.ents.faceCamera(lp.yaw);
     w.gore.update(fxDt, lp.yaw);
+    w.fx.cam.copy(w.r.camera.position);
     w.fx.update(fxDt);
+    w.bfx.update(fxDt);
     w.map.update(fxDt);
     w.r.update(dt);
     w.updateFx(dt);
@@ -1228,11 +1336,13 @@ export class Game {
     let target: { id: number; d: number } | null = null;
     for (const v of w.ents.enemies.values()) {
       if (v.last.anim !== 'stagger') continue;
+      if (v.type === 'warden' && v.last.move !== 'finish') continue;
       const d = Math.hypot(v.x - lp.x, v.z - lp.z) - ENEMIES[v.type].radius;
       if (d < C.GLORY_RANGE + 0.6 && (!target || d < target.d)) target = { id: v.id, d };
     }
     if (target) {
-      prompt = inp.padActive ? '[R3 / □] GLORY KILL' : inp.touchMode ? 'USE · GLORY KILL' : '[F] GLORY KILL';
+      const fin = w.ents.enemies.get(target.id)?.type === 'warden';
+      prompt = inp.padActive ? `[R3 / □] ${fin ? 'END IT' : 'GLORY KILL'}` : inp.touchMode ? `USE · ${fin ? 'END IT' : 'GLORY KILL'}` : `[F] ${fin ? 'END IT' : 'GLORY KILL'}`;
       if ((inp.pressed.has('glory') || inp.pressed.has('use')) && this.gloryCooldown <= 0) {
         this.gloryCooldown = 0.3;
         this.net.send({ t: 'glory', enemy: target.id });
@@ -1332,7 +1442,7 @@ export class Game {
     h.setTimer(this.room?.kind === 'gauntlet' && s.state === 'combat' ? s.roomTimer : null);
     h.setWave(s.wave);
     h.setEnemiesLeft(s.enemiesLeft, s.state === 'combat');
-    if (s.bossMaxHp > 0 && s.bossHp > 0) h.setBoss(s.bossName, s.bossHp / s.bossMaxHp, s.enemies.find((e) => e.type === 'warden')?.phase ?? 1);
+    if (s.bossMaxHp > 0 && s.bossHp > 0) { const ws = s.enemies.find((e) => e.type === 'warden'); h.setBoss(s.bossName, s.bossHp / s.bossMaxHp, ws?.phase ?? 1, { brk: ws?.brk, state: ws?.move, shield: ws?.shield }); }
     // low HP: heartbeat + vignette + handler
     const frac = this.hp / Math.max(1, this.maxHp);
     this.world.lowHpPulse = this.alive && frac < 0.3 ? 1 : 0;

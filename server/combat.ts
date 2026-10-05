@@ -105,7 +105,8 @@ export function ripperTick(run: Run, p: SimPlayer, dt: number) {
 
 export function damageEnemy(run: Run, e: Enemy, dmg: number, by: string, head: boolean, dx: number, dy: number, dz: number, weapon: WeaponId, silent = false) {
   if (!e.alive || e.spawnT > 0 || dmg <= 0) return;
-  if (!silent) dmg = e.modifyDamage(run, dmg, dx, dz, head);
+  if (!silent || e.bossLike) dmg = e.modifyDamage(run, dmg, dx, dz, head);
+  if (dmg <= 0) return;
   e.hp -= dmg;
   e.lastHitBy = by;
   const p = run.players.get(by) ?? null;
@@ -114,7 +115,11 @@ export function damageEnemy(run: Run, e: Enemy, dmg: number, by: string, head: b
     const l = Math.hypot(dx, dy, dz) || 1;
     run.emit({ e: 'hit', enemy: e.id, by, dmg: Math.round(dmg), head, x: e.x, y: head ? e.y + e.def.headY : e.cy, z: e.z, dx: dx / l, dy: dy / l, dz: dz / l, weapon });
   }
-  if (e.hp <= 0) { killEnemy(run, e, by, head, false, dx, dy, dz, weapon); return; }
+  if (e.hp <= 0) {
+    if (e.preventDeath(run, by)) { e.onDamaged(run, p); return; }
+    killEnemy(run, e, by, head, false, dx, dy, dz, weapon);
+    return;
+  }
   if (e.def.staggerable && !e.staggered && e.hp <= e.maxHp * C.GLORY_THRESHOLD) {
     e.staggered = true;
     e.staggerT = C.STAGGER_TIME;
@@ -195,6 +200,9 @@ export function killEnemy(run: Run, e: Enemy, by: string, head: boolean, glory: 
   });
   if (e.type === 'warden') {
     run.emit({ e: 'explosion', x: e.x, y: 3, z: e.z, r: 10, kind: 'boss' });
+    run.endZones();
+    run.shockwaves = [];
+    run.strikes = [];
     for (const other of run.enemies.values()) if (other !== e && other.alive) killEnemy(run, other, by, false, false, other.x - e.x, 1, other.z - e.z, weapon);
     run.projectiles = [];
   }

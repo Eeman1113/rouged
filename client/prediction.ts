@@ -28,6 +28,8 @@ export class LocalPlayer {
   pitch = 0;
   params: PhysParams = { speedMult: 1, jumpMult: 1, airControl: C.AIR_CONTROL, maxDash: C.DASH_CHARGES, dashCooldown: C.DASH_COOLDOWN, extraJumps: 0, wallRunTime: 0 };
   boxes: Box[] = [];
+  /** moving solids (boss bodies), rebuilt every frame by the game */
+  dynamicBoxes: Box[] = [];
   acc = 0;
   seq = 0;
   dashQueued = false;
@@ -115,7 +117,16 @@ export class LocalPlayer {
     while (this.acc >= C.PHYSICS_DT && n < 10) {
       this.prevX = s.x; this.prevY = s.y; this.prevZ = s.z;
       const wasG = s.onGround, wasM = (s.mantleT ?? 0) > 0;
-      const ev = stepPlayer(s, { fwd: inp.fwd, right: inp.right, jump: inp.jump, dash: this.dashQueued, crouch: inp.crouch, yaw: this.yaw, sprint }, this.params, this.boxes, C.PHYSICS_DT);
+      // a boss that moved onto us shoves us out (shortest horizontal axis)
+      for (const b of this.dynamicBoxes) {
+        const r = C.PLAYER_RADIUS;
+        if (s.x + r <= b.x0 || s.x - r >= b.x1 || s.z + r <= b.z0 || s.z - r >= b.z1 || s.y >= b.y1 || s.y + C.PLAYER_HEIGHT <= b.y0) continue;
+        const pushes = [b.x0 - r - s.x, b.x1 + r - s.x, b.z0 - r - s.z, b.z1 + r - s.z];
+        let best = 0; for (let i = 1; i < 4; i++) if (Math.abs(pushes[i]) < Math.abs(pushes[best])) best = i;
+        if (best < 2) s.x += pushes[best] * 1.001; else s.z += pushes[best] * 1.001;
+      }
+      const solids = this.dynamicBoxes.length ? this.boxes.concat(this.dynamicBoxes) : this.boxes;
+      const ev = stepPlayer(s, { fwd: inp.fwd, right: inp.right, jump: inp.jump, dash: this.dashQueued, crouch: inp.crouch, yaw: this.yaw, sprint }, this.params, solids, C.PHYSICS_DT);
       this.dashQueued = false;
       // smooth stair steps / ground snaps: physics teleports vertically, the camera eases
       const dy = s.y - this.prevY;
@@ -208,7 +219,7 @@ export class LocalPlayer {
       t: 'input', seq: ++this.seq,
       x: this.s.x, y: this.s.y, z: this.s.z, vx: this.s.vx, vy: this.s.vy, vz: this.s.vz,
       yaw: this.yaw, pitch: this.pitch, weapon, firing,
-      dashing: this.s.dashT > 0, sliding: this.s.slideT > 0,
+      dashing: this.s.dashT > 0, sliding: this.s.slideT > 0, crouch: !!this.s.crouched,
     };
   }
 }

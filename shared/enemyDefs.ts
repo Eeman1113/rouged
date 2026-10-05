@@ -29,6 +29,7 @@ export const ENEMIES: Record<EnemyType, EnemyDef> = {
   mortar: { type: 'mortar', name: 'MORTAR', hp: C.MORTAR_HP, radius: 0.9, height: 1.8, headY: 1.3, headR: 0.32, speed: 2.6, flying: false, score: 250, armorDrop: 0, staggerable: true },
   bulwark: { type: 'bulwark', name: 'BULWARK', hp: C.BULWARK_HP, radius: 0.9, height: 2.7, headY: 2.35, headR: 0.3, speed: 2.6, flying: false, score: 400, armorDrop: 20, staggerable: true },
   wraith: { type: 'wraith', name: 'WRAITH', hp: C.WRAITH_HP, radius: 0.55, height: 2.4, headY: 2.0, headR: 0.28, speed: 4.5, flying: false, score: 350, armorDrop: 0, staggerable: true },
+  echo: { type: 'echo', name: 'ECHO', hp: 300, radius: 2.0, height: 6.5, headY: 3.9, headR: 0.9, speed: 0, flying: false, score: 150, armorDrop: 0, staggerable: false },
   warden: { type: 'warden', name: 'WARDEN', hp: C.WARDEN_HP, radius: 2.4, height: 6.5, headY: 5.4, headR: 0.8, speed: 3.2, flying: false, score: 5000, armorDrop: 50, staggerable: false },
 };
 

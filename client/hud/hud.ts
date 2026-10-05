@@ -51,7 +51,7 @@ export class Hud {
     root.innerHTML = `
       <div class="hud-tl"><div class="room" id="h-room"></div><div class="seed" id="h-seed"></div><div class="score" id="h-score">0</div><div class="scrap" id="h-scrap">◆ 0</div></div>
       <div class="hud-tc">
-        <div class="boss hidden" id="h-boss"><div class="boss-name"></div><div class="boss-bar"><div class="boss-fill"></div></div><div class="boss-phase"></div></div>
+        <div class="boss hidden" id="h-boss"><div class="boss-name"></div><div class="boss-bar"><div class="boss-ghost"></div><div class="boss-fill"></div><i class="boss-tick" style="left:33%"></i><i class="boss-tick" style="left:66%"></i></div><div class="boss-sub"><div class="boss-phase"></div><div class="boss-break"><div class="boss-break-fill"></div></div></div><div class="boss-move"></div></div>
         <div class="timer hidden" id="h-timer"></div>
         <div class="wave hidden" id="h-wave"></div>
         <div class="left" id="h-left"></div>
@@ -170,13 +170,38 @@ export class Hud {
     if (pulse) { el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); }
   }
 
-  setBoss(name: string | null, frac = 1, phase = 1) {
+  private bossGhost = 1;
+  private bossMoveTxt = '';
+  private bossMoveT = 0;
+  /** Boss bar: phase pips, a trailing damage ghost, the break meter and the current move name. */
+  setBoss(name: string | null, frac = 1, phase = 1, extra?: { brk?: number; state?: string; shield?: number }) {
     const el = this.els['h-boss'];
-    if (!name) { el.classList.add('hidden'); return; }
+    if (!name) { el.classList.add('hidden'); this.bossGhost = 1; this.bossMoveTxt = ''; return; }
     el.classList.remove('hidden');
     (el.querySelector('.boss-name') as HTMLElement).textContent = name;
     (el.querySelector('.boss-fill') as HTMLElement).style.width = (frac * 100).toFixed(1) + '%';
-    (el.querySelector('.boss-phase') as HTMLElement).textContent = 'PHASE ' + 'I'.repeat(phase);
+    this.bossGhost = Math.max(frac, this.bossGhost - 0.004);
+    (el.querySelector('.boss-ghost') as HTMLElement).style.width = (this.bossGhost * 100).toFixed(1) + '%';
+    const pips = [1, 2, 3].map((i) => `<i class="pip${i < phase ? ' done' : i === phase ? ' on' : ''}"></i>`).join('');
+    const ph = el.querySelector('.boss-phase') as HTMLElement;
+    const html = `${pips}<span>PHASE ${'I'.repeat(phase)}</span>`;
+    if (ph.innerHTML !== html) ph.innerHTML = html;
+    const st = extra?.state ?? '';
+    const brk = st === 'break' ? 1 : Math.max(0, Math.min(1, extra?.brk ?? 0));
+    const bf = el.querySelector('.boss-break-fill') as HTMLElement;
+    bf.style.width = (brk * 100).toFixed(0) + '%';
+    el.classList.toggle('broken', st === 'break');
+    el.classList.toggle('shielded', (extra?.shield ?? 0) > 0.3);
+    el.classList.toggle('finish', st === 'finish');
+    const mv = el.querySelector('.boss-move') as HTMLElement;
+    const txt = st === 'break' ? '— BROKEN · +50% DAMAGE —' : st === 'finish' ? '— FINISH IT —' : this.bossMoveT > performance.now() && this.bossMoveTxt ? `— ${this.bossMoveTxt} —` : '';
+    if (mv.textContent !== txt) mv.textContent = txt;
+  }
+
+  /** Name the move a boss just started (shown under the bar for its duration). */
+  setBossMove(name: string, dur = 2.5) {
+    this.bossMoveTxt = name;
+    this.bossMoveT = performance.now() + dur * 1000;
   }
 
   setTimer(sec: number | null) {

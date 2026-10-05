@@ -1,6 +1,6 @@
 // Wire protocol + shared type vocabulary. Used by client, server sim, and the ws server.
 
-export type EnemyType = 'drone' | 'grunt' | 'brute' | 'stalker' | 'spider' | 'replica' | 'warden' | 'leech' | 'sentinel' | 'bomber' | 'mortar' | 'bulwark' | 'wraith';
+export type EnemyType = 'drone' | 'grunt' | 'brute' | 'stalker' | 'spider' | 'replica' | 'warden' | 'leech' | 'sentinel' | 'bomber' | 'mortar' | 'bulwark' | 'wraith' | 'echo';
 export type WeaponId = 'pulse' | 'breacher' | 'lance' | 'ripper';
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 export type DoorKind = 'standard' | 'elite' | 'unknown' | 'corrupted' | 'extract' | 'shop' | 'sanctuary' | 'trial';
@@ -60,6 +60,25 @@ export interface EnemySnap {
   /** stalker laser target, when aiming */
   aimX?: number; aimY?: number; aimZ?: number;
   phase?: number;
+  // ── bosses only (all optional; old clients ignore them) ──
+  /** current move id ('leap', 'fan', …) or a state: 'intro' | 'idle' | 'transition' | 'break' | 'dying' | 'finish' */
+  move?: string;
+  /** stage of the move: 0 wind-up, 1 active, 2 recovery */
+  moveStage?: number;
+  /** 0..1 progress through the current stage */
+  moveT?: number;
+  /** break meter 0..1 (full = the boss kneels and takes bonus damage) */
+  brk?: number;
+  /** weak point exposure 0..1 (glowing core takes bonus damage + builds break fast) */
+  core?: number;
+  /** weak point height above the feet (client head-hit test uses this for bosses) */
+  wy?: number;
+  /** invulnerability bubble 0..1 (phase transitions, linked shields) */
+  shield?: number;
+  /** boss sweep beam: [x0,y0,z0,x1,y1,z1,width,live 0|1] */
+  beam?: number[];
+  /** visual variant for echo copies (= boss biome) */
+  v?: number;
 }
 
 export type ProjectileKind = 'bolt' | 'plasma' | 'orb' | 'rocket' | 'spit' | 'replica' | 'shell' | 'hex';
@@ -200,7 +219,24 @@ export type GameEvent =
   | { e: 'shieldHit'; enemy: number; x: number; y: number; z: number }
   | { e: 'phoenix'; id: string }
   | { e: 'trueEnding' }
+  // ── boss fight events (new; older clients fall through `default`) ──
+  /** a boss starts a named move */
+  | { e: 'bossMove'; enemy: number; move: string; name: string; phase: number }
+  /** telegraph decal: line (x,z → x2,z2, width w), cone (origin x,z, yaw a, half-angle arc, length r), circle (x,z,r) */
+  | { e: 'bossTell'; shape: 'line' | 'cone' | 'circle'; x: number; z: number; x2?: number; z2?: number; r?: number; w?: number; a?: number; arc?: number; t: number; hue?: number }
+  /** expanding ground shockwave: jump it. Ring radius = r0 + speed·age until r1; hits below height h. */
+  | { e: 'shockwave'; x: number; z: number; r0: number; r1: number; speed: number; h: number; hue?: number }
+  /** persistent boss hazard zone; state changes are re-emitted with the same id */
+  | { e: 'zone'; id: number; kind: ZoneKind; shape: 'rect' | 'circle'; x: number; z: number; w: number; d: number; state: 'warn' | 'on' | 'off' | 'end'; t: number }
+  | { e: 'bossBreak'; enemy: number; on: boolean; x: number; y: number; z: number }
+  | { e: 'bossTransition'; enemy: number; phase: number; name: string; t: number }
+  | { e: 'bossDying'; enemy: number; x: number; y: number; z: number; t: number; finisher: boolean }
+  /** a boss speaks (the Handler warns you) */
+  | { e: 'bossSay'; enemy: number; text: string }
+  | { e: 'bossEnrage'; enemy: number }
   | { e: 'extractOffer' };
+
+export type ZoneKind = 'lava' | 'acid' | 'thorns' | 'static' | 'blood' | 'dark' | 'invert';
 
 export interface RunSummary {
   id: string;
@@ -240,6 +276,8 @@ export interface InputMsg {
   firing: boolean;
   dashing: boolean;
   sliding: boolean;
+  /** crouched (boss beams can be ducked) */
+  crouch?: boolean;
 }
 
 /** Client-side hit claim. The server validates plausibility, computes damage itself. */

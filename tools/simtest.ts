@@ -31,7 +31,7 @@ p.mods.maxHp = 100000; p.hp = 100000; // god mode bot
 let seq = 0, t = 0;
 const t0 = Date.now();
 const maxRoom = Number(process.argv[3] ?? 45);
-for (let i = 0; i < 30 * 60 * 90 && !ended && (!run.room || run.room.index < maxRoom); i++) {
+for (let i = 0; i < 30 * 60 * 600 && !ended && (!run.room || run.room.index < maxRoom); i++) {
   t += C.TICK_DT;
   const s = snap as Snapshot | null;
   if (s) {

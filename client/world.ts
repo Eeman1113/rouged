@@ -5,7 +5,7 @@ import { SceneRenderer } from './render/scene';
 import { MapView } from './render/map';
 import { EntityViews } from './render/entities';
 import { Gore } from './render/gore';
-import { Effects } from './render/effects';
+import { Effects, BossFx } from './render/effects';
 import { Hud } from './hud/hud';
 import { Input } from './input';
 import { LocalPlayer } from './prediction';
@@ -24,6 +24,7 @@ export class World {
   ents: EntityViews;
   gore: Gore;
   fx: Effects;
+  bfx: BossFx;
   hud: Hud;
   input: Input;
   player = new LocalPlayer();
@@ -65,6 +66,7 @@ export class World {
     this.ents = new EntityViews(this.r.scene);
     this.gore = new Gore(this.r.scene);
     this.fx = new Effects(this.r.scene);
+    this.bfx = new BossFx(this.r.scene);
     this.hud = new Hud(document.getElementById('hud')!, hud2d);
     this.input = new Input(gl, document.getElementById('touch')!);
     this.hud.resize(this.r.width, this.r.height);
@@ -110,6 +112,8 @@ export class World {
     this.ents.ambient = geo.desc.kind === 'hub' ? 0.6 : geo.ambient;
     this.gore.clear();
     this.fx.clear();
+    this.bfx.clear();
+    this.r.canvas.style.filter = '';
     this.gore.boxes = solidsFor(geo, null);
     this.player.boxes = solidsFor(geo, new Set());
     const L = lightFor(geo.desc.kind, geo.desc.biome);

@@ -98,11 +98,29 @@ Below 15% HP, an enemy **staggers**: its core cracks open and glows. Get close a
   <tr>
     <td width="33%"><img src="docs/media/warden-smelter.jpg"/><br/><b>THE SMELTER</b><br/><i>"Into the furnace, copy."</i></td>
     <td width="33%"><img src="docs/media/warden-gardener.jpg"/><br/><b>THE GARDENER</b><br/><i>"Weeds. You are weeds in a good memory."</i></td>
-    <td width="33%"><img src="docs/media/warden-handler.jpg"/><br/><b>THE HANDLER</b><br/><i>"Hello. You came all the way inside."</i></td>
+    <td width="33%"><img src="docs/media/warden-handler.jpg"/><br/><b>THE HANDLER</b><br/><i>"YOUR OLD ONES. I'M SORRY."</i></td>
+  </tr>
+  <tr>
+    <td colspan="3"><img src="docs/media/warden-general.jpg"/><br/><b>THE GENERAL</b> — <i>"Soldier. Fall in. You have been at war for eleven years."</i></td>
   </tr>
 </table>
 
-There are seven Wardens, each with several phases. **THE SMELTER · THE CURATOR · THE FIRST · THE MOTHER · THE GARDENER · THE GENERAL · THE HANDLER.** The last one doesn't chase you, and it wants you to win.
+Seven Wardens, each a fight of its own: **5–9 learnable moves** with readable wind-ups, combos, and **three phases** that each change the arena. Every damaging attack gets at least 0.6s of warning on Normal.
+
+- **Break meter.** Damage (more of it on the glowing weak point) fills it until the Warden **kneels for 3s and takes +50%**.
+- **Glory finisher.** At 0 HP it kneels one last time: `[F] END IT`.
+- **Set-piece transitions.** Lava lanes flood the Foundry, the Archive's lights go out and pylons shield the Curator, the Mother births a brood, the Gardener grows thorn walls, the General calls in artillery, and the Handler fractures into echoes and inverts the room.
+- **Dodge with your body.** Jump the shockwave rings, slide or duck under high beams, hop over low sweeps.
+
+| WARDEN | SIGNATURE MOVES |
+|:--|:--|
+| **THE SMELTER** | Molten Leap · Furnace Rush · Crucible Spin · Furnace Vent |
+| **THE CURATOR** | Index Gaze · Stack Collapse · Re-Shelve · Archive Purge |
+| **THE FIRST** | Heartbeat · Artery Lash · Mimicry · Vein Burst |
+| **THE MOTHER** | Birthing · Umbilical · Amniotic Rain · Lullaby |
+| **THE GARDENER** | Root Eruption · Strangler Vines · Watering Lance · Overgrowth |
+| **THE GENERAL** | Call Artillery · Siege Cannon · Tread Charge · Walking Barrage |
+| **THE HANDLER** | Memory Replay · Full Scan · Correction · Fracture. *It warns you before every attack. Sometimes it can't go through with it.* |
 
 <br/>
 

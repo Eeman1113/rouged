@@ -254,6 +254,12 @@ export abstract class Enemy {
   /** Shields, armor plates, weak spots. */
   modifyDamage(_run: Run, dmg: number, _dx: number, _dz: number, _head: boolean): number { return dmg; }
 
+  /** Bosses: damage passes through modifyDamage even when silent (burn, hazards). */
+  get bossLike(): boolean { return false; }
+
+  /** Return true to survive a lethal hit (boss death sequences). */
+  preventDeath(_run: Run, _by: string): boolean { return false; }
+
   /** Called once when killed. */
   onDeath(_run: Run, _by: string): void {}
 
