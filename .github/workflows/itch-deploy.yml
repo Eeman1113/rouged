@@ -36,9 +36,22 @@ jobs:
       - run: npm run build
 
       - name: Install butler
+        # itch's primary CDN (broth.itch.ovh — OVH, France) is unreliable
+        # from GitHub's US runners (DNS fails ~1 in 10). The .zone mirror
+        # resolves even when .ovh doesn't. Retry each, fall through on fail.
         run: |
-          curl -L -o butler.zip 'https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default'
-          unzip butler.zip
+          set -eo pipefail
+          for base in https://broth.itch.ovh https://broth.itch.zone; do
+            echo "Trying $base"
+            if curl -L -f -o butler.zip \
+                 --retry 3 --retry-connrefused --retry-delay 2 \
+                 "$base/butler/linux-amd64/LATEST/archive/default"; then
+              echo "✓ Downloaded from $base"
+              break
+            fi
+          done
+          test -s butler.zip || { echo "::error::All butler mirrors failed"; exit 1; }
+          unzip -q butler.zip
           chmod +x butler
           ./butler -V
 
