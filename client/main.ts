@@ -15,7 +15,10 @@ import { DEATH_TITLES, FRAGMENTS, REVEAL_SCRIPT, EXTRACT_SCRIPT, SYNERGY_LORE, E
 import { SYNERGIES } from '../shared/powerupDefs';
 import { handlerLine } from './story/handlerLines';
 import { esc } from './hud/killfeed';
-import { valorantToRouged, rougedToValorant, cmPer360, VALORANT_VFOV } from './sensitivity';
+import {
+  valorantToRouged, rougedToValorant, cmPer360, VALORANT_VFOV,
+  PRESET_SENS, PRESET_LABELS, classifySens, type SensPreset,
+} from './sensitivity';
 import { BTN, DualSenseHID } from './gamepad';
 
 type Mode = 'title' | 'hub' | 'run' | 'death' | 'reveal' | 'lobby';
@@ -660,6 +663,13 @@ class App {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <label class="field">CALLSIGN<input id="s-name" maxlength="16" value="${esc(this.meta.name)}"/></label>
         <label class="field">QUALITY<select id="s-q"><option value="high" ${s.quality === 'high' ? 'selected' : ''}>HIGH (480p + BLOOM)</option><option value="low" ${s.quality === 'low' ? 'selected' : ''}>LOW</option></select></label>
+        <label class="field" style="grid-column:1/-1">SENSITIVITY PRESET <span id="v-preset" class="hint">${PRESET_LABELS[s.sensPreset]}</span>
+          <div id="s-preset" class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">
+            ${(['noob','pro','godkiller'] as const).map(p =>
+              `<button type="button" class="btn small${s.sensPreset === p ? ' primary' : ''}" data-preset="${p}">${PRESET_LABELS[p].split(' ')[0]}${p === 'godkiller' ? ' KILLER' : ''}</button>`
+            ).join('')}
+            <button type="button" class="btn small${s.sensPreset === 'custom' ? ' primary' : ''}" data-preset="custom">CUSTOM</button>
+          </div></label>
         <label class="field">SENSITIVITY <span id="v-sens">${s.sensitivity.toFixed(3)} · VALO ${rougedToValorant(s.sensitivity).toFixed(3)}</span><input id="s-sens" type="range" min="0.05" max="3" step="any" value="${s.sensitivity}"/></label>
         <label class="field">FOV (VERTICAL) <span id="v-fov">${s.fov.toFixed(1)}</span><input id="s-fov" type="range" min="60" max="115" step="any" value="${s.fov}"/></label>
         <label class="field">SCOPED SENS MULTIPLIER <span id="v-ads">${(s.adsMult ?? 1).toFixed(2)}</span><input id="s-ads" type="range" min="0.2" max="2" step="0.01" value="${s.adsMult ?? 1}"/></label>
@@ -695,7 +705,44 @@ class App {
       <div style="margin-top:16px" class="row"><button class="btn primary" id="b-save" data-back>SAVE</button><button class="btn" id="b-reset">ERASE PROGRESS</button></div></div>`);
     const q = <T extends HTMLElement>(id: string) => d.querySelector('#' + id) as T;
     const refreshCm = () => { q('v-cm').textContent = cmPer360(Number(q<HTMLInputElement>('s-sens').value), Number(q<HTMLInputElement>('s-dpi').value) || 800).toFixed(1) + ' CM/360'; };
-    q<HTMLInputElement>('s-sens').oninput = (e) => { const v = Number((e.target as HTMLInputElement).value); q('v-sens').textContent = `${v.toFixed(3)} · VALO ${rougedToValorant(v).toFixed(3)}`; refreshCm(); };
+
+    // Preset chips. Clicking one pins the sens slider to the preset's exact
+    // value AND remembers the choice so the chip stays highlighted on
+    // re-open. Dragging the slider or running the Valorant import flips the
+    // chip to 'CUSTOM' / 'VALORANT IMPORT' respectively — tracked via
+    // `currentPreset` while the dialog is open, committed on SAVE.
+    let currentPreset: SensPreset = s.sensPreset;
+    const paintPreset = () => {
+      q('v-preset').textContent = PRESET_LABELS[currentPreset];
+      d.querySelectorAll<HTMLButtonElement>('#s-preset [data-preset]').forEach(btn => {
+        btn.classList.toggle('primary', btn.dataset.preset === currentPreset);
+      });
+    };
+    d.querySelectorAll<HTMLButtonElement>('#s-preset [data-preset]').forEach(btn => {
+      btn.onclick = () => {
+        const preset = btn.dataset.preset as SensPreset;
+        currentPreset = preset;
+        if (preset !== 'custom') {
+          const sens = PRESET_SENS[preset as Exclude<SensPreset, 'custom' | 'valorant'>];
+          const sensEl = q<HTMLInputElement>('s-sens');
+          sensEl.value = String(sens);
+          q('v-sens').textContent = `${sens.toFixed(3)} · VALO ${rougedToValorant(sens).toFixed(3)}`;
+          refreshCm();
+        }
+        paintPreset();
+        sfx.uiClick();
+      };
+    });
+
+    q<HTMLInputElement>('s-sens').oninput = (e) => {
+      const v = Number((e.target as HTMLInputElement).value);
+      q('v-sens').textContent = `${v.toFixed(3)} · VALO ${rougedToValorant(v).toFixed(3)}`;
+      refreshCm();
+      // Human dragged the slider — mark Custom unless the value happens to
+      // land exactly on a preset (classifySens handles that).
+      currentPreset = classifySens(v);
+      paintPreset();
+    };
     q<HTMLInputElement>('s-fov').oninput = (e) => { q('v-fov').textContent = Number((e.target as HTMLInputElement).value).toFixed(1); };
     q<HTMLInputElement>('s-ads').oninput = (e) => { q('v-ads').textContent = Number((e.target as HTMLInputElement).value).toFixed(2); };
     q<HTMLInputElement>('s-dpi').oninput = refreshCm;
@@ -706,6 +753,11 @@ class App {
       const sensEl = q<HTMLInputElement>('s-sens');
       sensEl.min = String(Math.min(Number(sensEl.min), sens)); sensEl.max = String(Math.max(Number(sensEl.max), sens));
       sensEl.value = String(sens); sensEl.dispatchEvent(new Event('input'));
+      // The input event above re-ran my classifier and (likely) set
+      // currentPreset to 'custom'. Overwrite with 'valorant' so the chip
+      // shows this came from the import flow, not a manual tweak.
+      currentPreset = 'valorant';
+      paintPreset();
       const ads = Number(q<HTMLInputElement>('v-valads').value) || 1;
       q<HTMLInputElement>('s-ads').value = String(ads); q<HTMLInputElement>('s-ads').dispatchEvent(new Event('input'));
       if (q<HTMLInputElement>('v-valfov').checked) { q<HTMLInputElement>('s-fov').value = String(VALORANT_VFOV); q<HTMLInputElement>('s-fov').dispatchEvent(new Event('input')); }
@@ -717,6 +769,7 @@ class App {
       this.meta.name = (q<HTMLInputElement>('s-name').value.trim().toUpperCase() || 'CANDIDATE').slice(0, 16);
       s.quality = q<HTMLSelectElement>('s-q').value as 'high' | 'low';
       s.sensitivity = Number(q<HTMLInputElement>('s-sens').value);
+      s.sensPreset = currentPreset;
       s.fov = Number(q<HTMLInputElement>('s-fov').value);
       s.adsMult = Number(q<HTMLInputElement>('s-ads').value) || 1;
       s.dpi = Number(q<HTMLInputElement>('s-dpi').value) || 800;

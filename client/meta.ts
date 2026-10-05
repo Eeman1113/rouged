@@ -2,9 +2,14 @@
 
 import type { Difficulty, ReplicaProfile, RunSummary, WeaponId } from '../shared/protocol';
 import { levelFromXp, unlockedWeapons } from '../server/progression';
+import { PRESET_SENS, LEGACY_DEFAULT_SENS, classifySens, type SensPreset } from './sensitivity';
 
 export interface Settings {
   sensitivity: number;
+  /** Which named preset the player is on. Lets the UI highlight the right
+   *  chip on re-open, and lets us keep anyone who's manually tuned their
+   *  sens from being clobbered when the default shifts. */
+  sensPreset: SensPreset;
   invertY: boolean;
   master: number;
   music: number;
@@ -58,7 +63,7 @@ export function defaultMeta(): Meta {
   return {
     v: 1, name: 'CANDIDATE', xp: 0, runCount: 0, deaths: 0, victories: 0, cores: 0, fragments: [], bestScore: 0, bestRooms: 0, bestCombo: 1,
     totalKills: 0, synergies: [], enemiesSeen: [], legendariesSeen: 0, replica: null, difficulty: 'normal', revealSeen: false, trueEndingSeen: false, extractions: 0, deepest: 0, lastSeed: '',
-    settings: { sensitivity: 1, invertY: false, master: 0.9, music: 0.7, sfx: 0.9, voice: true, fov: 95, shake: 1, quality: 'high', padSens: 1, aimAssist: 0.6, rumble: 1, triggers: true, gyro: 'l2', gyroSens: 1.2, serverUrl: '', sprintToggle: false, adsMult: 1, dpi: 800 },
+    settings: { sensitivity: PRESET_SENS.noob, sensPreset: 'noob', invertY: false, master: 0.9, music: 0.7, sfx: 0.9, voice: true, fov: 95, shake: 1, quality: 'high', padSens: 1, aimAssist: 0.6, rumble: 1, triggers: true, gyro: 'l2', gyroSens: 1.2, serverUrl: '', sprintToggle: false, adsMult: 1, dpi: 800 },
   };
 }
 
@@ -68,7 +73,23 @@ export function loadMeta(): Meta {
     if (!raw) return defaultMeta();
     const m = JSON.parse(raw) as Partial<Meta>;
     const d = defaultMeta();
-    return { ...d, ...m, settings: { ...d.settings, ...(m.settings ?? {}) } };
+    const merged: Meta = { ...d, ...m, settings: { ...d.settings, ...(m.settings ?? {}) } };
+    // Preset migration for saves predating the preset chips. Two rules:
+    //  (a) If the saved sens is EXACTLY the legacy default of 1, this user
+    //      never touched the slider — move them to the new default (noob)
+    //      instead of pinning them at a ~9cm/360 flick-shooter speed.
+    //  (b) Otherwise they chose something — leave it alone, mark 'custom'
+    //      (or 'noob'/'pro'/'godkiller' if it happens to equal a preset).
+    if ((m.settings as Partial<Settings> | undefined)?.sensPreset == null) {
+      const existing = merged.settings.sensitivity;
+      if (existing === LEGACY_DEFAULT_SENS) {
+        merged.settings.sensitivity = PRESET_SENS.noob;
+        merged.settings.sensPreset = 'noob';
+      } else {
+        merged.settings.sensPreset = classifySens(existing);
+      }
+    }
+    return merged;
   } catch { return defaultMeta(); }
 }
 
