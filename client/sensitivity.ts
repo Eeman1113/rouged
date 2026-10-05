@@ -29,18 +29,24 @@ export const VALORANT_VFOV = (2 * Math.atan(Math.tan((103 / 2) * (Math.PI / 180)
  *  after a re-open — it's the Valorant import path, not a manual tweak. */
 export type SensPreset = 'noob' | 'pro' | 'godkiller' | 'custom' | 'valorant';
 
-/** Target cm/360 at 800 DPI (the de-facto standard for aim training). From
- *  there sens is derived — same preset gives the same cm/360 at any DPI. */
+/** Target cm/360 for each preset. A preset is a physical target (cm of mouse
+ *  travel per full turn), so the ROUGED sens behind it depends on the mouse's
+ *  DPI: double the DPI → half the sens for the same cm/360. Use presetSens(). */
 const PRESET_CM_PER_360: Record<Exclude<SensPreset, 'custom' | 'valorant'>, number> = {
   noob:      45,  // slow, deliberate — safer learning speed
   pro:       22,  // competitive FPS pro range (CS2 / Valorant pros avg 25)
   godkiller:  8,  // flick-shot territory (DOOM/Quake speedrunners)
 };
 
-/** Reference DPI for every preset. We quote cm/360 at this DPI, then solve
- *  back to ROUGED's unitless sens — which stays the same across any DPI the
- *  player's mouse happens to be set to. */
+/** Fallback DPI when the player hasn't told us theirs (the usual default). */
 export const PRESET_REFERENCE_DPI = 800;
+
+export type NamedPreset = keyof typeof PRESET_CM_PER_360;
+
+/** ROUGED sens that gives `preset`'s cm/360 on a mouse at `dpi`. */
+export function presetSens(preset: NamedPreset, dpi = PRESET_REFERENCE_DPI): number {
+  return sensFromCmPer360(PRESET_CM_PER_360[preset], dpi > 0 ? dpi : PRESET_REFERENCE_DPI);
+}
 
 /** Invert cmPer360() → ROUGED sens that gives `cm` at `dpi`. */
 export function sensFromCmPer360(cm: number, dpi = PRESET_REFERENCE_DPI): number {
@@ -48,6 +54,7 @@ export function sensFromCmPer360(cm: number, dpi = PRESET_REFERENCE_DPI): number
   return (Math.PI * 2 * 2.54) / (ROUGED_RAD_PER_COUNT * dpi * cm);
 }
 
+/** Preset sens at the reference 800 DPI (defaults / migration of old saves). */
 export const PRESET_SENS: Record<keyof typeof PRESET_CM_PER_360, number> = {
   noob:      sensFromCmPer360(PRESET_CM_PER_360.noob),
   pro:       sensFromCmPer360(PRESET_CM_PER_360.pro),
@@ -69,12 +76,12 @@ export const LEGACY_DEFAULT_SENS = 1;
 
 /** Classifies a saved sens against the three preset targets so we can show
  *  the right chip on a re-open even when the saved file predates presets. */
-export function classifySens(sens: number): SensPreset {
-  // Compare on the sens itself (small floats) with a loose epsilon so a
-  // save-reload round-trip through JSON doesn't knock the chip off.
-  const eq = (a: number, b: number) => Math.abs(a - b) < 1e-4;
-  if (eq(sens, PRESET_SENS.noob))      return 'noob';
-  if (eq(sens, PRESET_SENS.pro))       return 'pro';
-  if (eq(sens, PRESET_SENS.godkiller)) return 'godkiller';
+export function classifySens(sens: number, dpi = PRESET_REFERENCE_DPI): SensPreset {
+  // Compare cm/360 at the player's DPI (a relative tolerance, so it works for
+  // any DPI) — a save-reload round-trip through JSON won't knock the chip off.
+  const cm = cmPer360(sens, dpi > 0 ? dpi : PRESET_REFERENCE_DPI);
+  for (const p of Object.keys(PRESET_CM_PER_360) as NamedPreset[]) {
+    if (Math.abs(cm - PRESET_CM_PER_360[p]) / PRESET_CM_PER_360[p] < 1e-3) return p;
+  }
   return 'custom';
 }

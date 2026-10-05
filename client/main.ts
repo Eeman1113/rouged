@@ -17,7 +17,7 @@ import { handlerLine } from './story/handlerLines';
 import { esc } from './hud/killfeed';
 import {
   valorantToRouged, rougedToValorant, cmPer360, VALORANT_VFOV,
-  PRESET_SENS, PRESET_LABELS, classifySens, type SensPreset,
+  presetSens, PRESET_LABELS, classifySens, type SensPreset, type NamedPreset,
 } from './sensitivity';
 import { BTN, DualSenseHID } from './gamepad';
 
@@ -712,6 +712,16 @@ class App {
     // chip to 'CUSTOM' / 'VALORANT IMPORT' respectively — tracked via
     // `currentPreset` while the dialog is open, committed on SAVE.
     let currentPreset: SensPreset = s.sensPreset;
+    const curDpi = () => Number(q<HTMLInputElement>('s-dpi').value) || 800;
+    // A preset is a cm/360 target: solve it for THIS mouse's DPI.
+    const applyPreset = (preset: NamedPreset) => {
+      const sens = presetSens(preset, curDpi());
+      const sensEl = q<HTMLInputElement>('s-sens');
+      sensEl.min = String(Math.min(Number(sensEl.min), sens)); sensEl.max = String(Math.max(Number(sensEl.max), sens));
+      sensEl.value = String(sens);
+      q('v-sens').textContent = `${sens.toFixed(3)} · VALO ${rougedToValorant(sens).toFixed(3)}`;
+      refreshCm();
+    };
     const paintPreset = () => {
       q('v-preset').textContent = PRESET_LABELS[currentPreset];
       d.querySelectorAll<HTMLButtonElement>('#s-preset [data-preset]').forEach(btn => {
@@ -722,13 +732,7 @@ class App {
       btn.onclick = () => {
         const preset = btn.dataset.preset as SensPreset;
         currentPreset = preset;
-        if (preset !== 'custom') {
-          const sens = PRESET_SENS[preset as Exclude<SensPreset, 'custom' | 'valorant'>];
-          const sensEl = q<HTMLInputElement>('s-sens');
-          sensEl.value = String(sens);
-          q('v-sens').textContent = `${sens.toFixed(3)} · VALO ${rougedToValorant(sens).toFixed(3)}`;
-          refreshCm();
-        }
+        if (preset !== 'custom') applyPreset(preset as NamedPreset);
         paintPreset();
         sfx.uiClick();
       };
@@ -740,12 +744,16 @@ class App {
       refreshCm();
       // Human dragged the slider — mark Custom unless the value happens to
       // land exactly on a preset (classifySens handles that).
-      currentPreset = classifySens(v);
+      currentPreset = classifySens(v, curDpi());
       paintPreset();
     };
     q<HTMLInputElement>('s-fov').oninput = (e) => { q('v-fov').textContent = Number((e.target as HTMLInputElement).value).toFixed(1); };
     q<HTMLInputElement>('s-ads').oninput = (e) => { q('v-ads').textContent = Number((e.target as HTMLInputElement).value).toFixed(2); };
-    q<HTMLInputElement>('s-dpi').oninput = refreshCm;
+    q<HTMLInputElement>('s-dpi').oninput = () => {
+      // on a named preset, a DPI change keeps the preset's cm/360 (re-solves the sens)
+      if (currentPreset === 'noob' || currentPreset === 'pro' || currentPreset === 'godkiller') applyPreset(currentPreset);
+      else refreshCm();
+    };
     q('b-valo').onclick = () => {
       const val = Number(q<HTMLInputElement>('v-val').value);
       if (!(val > 0 && val < 20)) { q('v-valmsg').textContent = 'Enter your VALORANT sensitivity (e.g. 0.35).'; return; }

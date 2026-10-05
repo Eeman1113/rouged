@@ -2,7 +2,7 @@
 
 import type { Difficulty, ReplicaProfile, RunSummary, WeaponId } from '../shared/protocol';
 import { levelFromXp, unlockedWeapons } from '../server/progression';
-import { PRESET_SENS, LEGACY_DEFAULT_SENS, classifySens, type SensPreset } from './sensitivity';
+import { PRESET_SENS, LEGACY_DEFAULT_SENS, classifySens, presetSens, type SensPreset } from './sensitivity';
 
 export interface Settings {
   sensitivity: number;
@@ -83,10 +83,10 @@ export function loadMeta(): Meta {
     if ((m.settings as Partial<Settings> | undefined)?.sensPreset == null) {
       const existing = merged.settings.sensitivity;
       if (existing === LEGACY_DEFAULT_SENS) {
-        merged.settings.sensitivity = PRESET_SENS.noob;
+        merged.settings.sensitivity = presetSens('noob', merged.settings.dpi ?? 800);
         merged.settings.sensPreset = 'noob';
       } else {
-        merged.settings.sensPreset = classifySens(existing);
+        merged.settings.sensPreset = classifySens(existing, merged.settings.dpi ?? 800);
       }
     }
     return merged;
