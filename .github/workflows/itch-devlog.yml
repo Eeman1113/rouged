@@ -1,0 +1,106 @@
+name: Post itch.io devlog
+
+# Posts a devlog to the itch.io game page.
+#
+# IMPORTANT — read before enabling:
+#   itch.io does NOT have a public API for creating devlog posts. This
+#   workflow authenticates with your account using a session cookie you
+#   stored as a secret, fetches the devlog form to get a fresh CSRF token,
+#   and submits the form. It will break if itch changes the form schema.
+#
+# ALSO IMPORTANT — SEO downside of posting on every commit:
+#   itch's /devlogs feed and your followers' notifications treat each post
+#   as an event. One tiny commit per devlog turns your page into noise and
+#   trains readers to ignore your updates. The default below only posts on
+#   a git TAG push (e.g. `git tag v0.2.0 && git push origin v0.2.0`), which
+#   gives you one high-signal devlog per release.
+#   If you really want one devlog per commit anyway, change the `on:` block
+#   below to the "every commit" variant commented at the bottom.
+#
+# One-time setup:
+#   1. In the browser where you're logged into itch, open DevTools →
+#      Application → Cookies → https://itch.io, copy the value of the
+#      `itchio` cookie (big base64-ish string).
+#   2. Add it to GitHub repo secrets as ITCH_SESSION_COOKIE.
+#   3. (Optional) Add ITCH_GAME_ID = 5104941 and ITCH_UPLOAD_ID = 19574261
+#      as secrets — they're in the URL / page source and I've prefilled
+#      them below as the defaults for ROUGED.
+#   4. The cookie expires when you log out of itch. If devlog posting
+#      starts failing with "redirected to /login", refresh the cookie.
+
+on:
+  push:
+    tags: ['v*']           # fires on v0.1.0, v1.0.0-rc1, etc.
+  workflow_dispatch:        # fire manually from the Actions tab
+    inputs:
+      title:
+        description: 'Devlog title (defaults to the latest commit subject)'
+        required: false
+      body:
+        description: 'Devlog body (defaults to the latest commit body)'
+        required: false
+
+jobs:
+  post-devlog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compose devlog
+        id: compose
+        run: |
+          # Prefer the dispatch inputs; otherwise read from the tag or the latest commit.
+          if [ -n "${{ inputs.title }}" ]; then
+            TITLE="${{ inputs.title }}"
+          elif [ -n "$GITHUB_REF_NAME" ] && [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            TITLE="Release $GITHUB_REF_NAME"
+          else
+            TITLE=$(git log -1 --pretty=%s)
+          fi
+          echo "title<<EOF" >> $GITHUB_OUTPUT
+          echo "$TITLE"     >> $GITHUB_OUTPUT
+          echo "EOF"        >> $GITHUB_OUTPUT
+
+          if [ -n "${{ inputs.body }}" ]; then
+            BODY="${{ inputs.body }}"
+          elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            # For a release tag, the body is "what changed since the last tag"
+            PREV_TAG=$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || echo "")
+            if [ -n "$PREV_TAG" ]; then
+              BODY=$(git log --pretty='format:• %s' "$PREV_TAG..$GITHUB_REF_NAME")
+            else
+              BODY=$(git log -1 --pretty=%B)
+            fi
+          else
+            BODY=$(git log -1 --pretty=%B)
+          fi
+          echo "body<<EOF"  >> $GITHUB_OUTPUT
+          echo "$BODY"      >> $GITHUB_OUTPUT
+          echo "EOF"        >> $GITHUB_OUTPUT
+
+      - name: Post to itch
+        env:
+          ITCH_SESSION_COOKIE: ${{ secrets.ITCH_SESSION_COOKIE }}
+          ITCH_GAME_ID:   ${{ secrets.ITCH_GAME_ID   || '5104941' }}
+          ITCH_UPLOAD_ID: ${{ secrets.ITCH_UPLOAD_ID || '19574261' }}
+          POST_TITLE: ${{ steps.compose.outputs.title }}
+          POST_BODY:  ${{ steps.compose.outputs.body }}
+        run: node .github/scripts/post-devlog.mjs
+
+# ─── Alternate trigger: one devlog per commit to main ───────────────────────
+# Replace the `on:` block above with this to fire on every push to main
+# instead of only on tags:
+#
+# on:
+#   push:
+#     branches: [main]
+#   workflow_dispatch:
+#
+# Fair warning: itch's /devlogs feed will down-rank you, your followers get
+# a notification per commit, and devlog posts stop reading as "events".

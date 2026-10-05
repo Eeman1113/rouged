@@ -1,0 +1,58 @@
+name: Deploy to itch.io
+
+# Builds the game and pushes the dist/ folder to the html5 channel of
+# eeman/rouged on itch.io on every push to main. Uses the official itch
+# "butler" tool — stable, idempotent (--if-changed), and the real way to
+# ship to itch from CI.
+#
+# One-time setup:
+#   1. Generate an API key at https://itch.io/user/settings/api-keys
+#   2. Add it to GitHub repo secrets as BUTLER_API_KEY
+#      (Settings → Secrets and variables → Actions → New secret)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: itch-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # need HEAD + HEAD~1 for the commit-message user version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Install butler
+        run: |
+          curl -L -o butler.zip 'https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default'
+          unzip butler.zip
+          chmod +x butler
+          ./butler -V
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          # User version string shows in the game's "File history" on itch.
+          # Format: <short-sha>-<first-line-of-commit-message>, truncated to
+          # fit butler's 40-char limit, slug-safe.
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          SUBJECT=$(git log -1 --pretty=%s | tr -c '[:alnum:]._-' '-' | cut -c1-30)
+          USER_VERSION="${SHA_SHORT}-${SUBJECT}"
+          echo "User version: $USER_VERSION"
+          ./butler push dist eeman/rouged:html5 \
+            --userversion "$USER_VERSION" \
+            --if-changed

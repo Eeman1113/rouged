@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://eeman1113.github.io/rouged/"><img src="https://img.shields.io/badge/%E2%96%B6%20PLAY-IN%20YOUR%20BROWSER-c4161c?style=for-the-badge&labelColor=0b0606" alt="Play"/></a>
+  <a href="https://eeman.itch.io/rouged"><img src="https://img.shields.io/badge/%F0%9F%8E%AE%20ALSO%20ON-ITCH.IO-fa5c5c?style=for-the-badge&labelColor=0b0606" alt="Play on itch.io"/></a>
   <img src="https://img.shields.io/badge/ASSETS-0%20FILES%20%C2%B7%20ALL%20PROCEDURAL-59ff7a?style=for-the-badge&labelColor=0b0606" alt="Procedural"/>
   <img src="https://img.shields.io/badge/DUALSENSE-ADAPTIVE%20TRIGGERS%20%C2%B7%20GYRO-3b8cff?style=for-the-badge&labelColor=0b0606" alt="DualSense"/>
   <br/>
@@ -292,6 +293,12 @@ npm run build      # typecheck + production build → dist/
 npm run simtest    # a bot plays the full descent against the real sim, headless
 ```
 
+**Where it lives:**
+
+- GitHub Pages mirror — [`eeman1113.github.io/rouged`](https://eeman1113.github.io/rouged/) — pushed by `.github/workflows/pages.yml` on every commit to `main`.
+- itch.io mirror — [`eeman.itch.io/rouged`](https://eeman.itch.io/rouged) — pushed by `.github/workflows/itch-deploy.yml` via [butler](https://itch.io/docs/butler/) on every commit to `main`. Each build's "user version" on itch is `<short-sha>-<commit-subject>` so the file history is grep-able.
+- Release devlog — tag a release (`git tag v0.2.0 && git push origin v0.2.0`) and `.github/workflows/itch-devlog.yml` posts a devlog on itch summarising every commit since the previous tag.
+
 **Co-op:** in the menu, go to **CO-OP DEPLOY** and enter the server address (`wss://` when you're playing from an HTTPS page). Up to four players share a seed and a combo multiplier, and anyone can drop in mid-run.
 
 ```
@@ -332,4 +339,6 @@ client/   480p nearest-neighbour renderer + bloom · procedural pixel art · sim
   <b><i>"You can stop. But you won't. I know you. I made you."</i></b>
   <br/><br/>
   <a href="https://eeman1113.github.io/rouged/"><b>▶ &nbsp; WAKE UP</b></a>
+  &nbsp; · &nbsp;
+  <a href="https://eeman.itch.io/rouged"><b>WAKE UP ON ITCH.IO</b></a>
 </p>
