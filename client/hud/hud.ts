@@ -424,10 +424,11 @@ export class Hud {
     } else if (this.hitT > hd) this.hitKill = false;
 
     // ── face (bottom center)
-    const fs = Math.max(1, Math.round(H / 220));
+    // high-detail 53×52 face: ~72px tall at 480p, same footprint as the old 32×36 at 2×
+    const fs = (H / 480) * 1.38;
     const fc = this.face.canvas(this.hpFrac);
-    const fw = fc.width * fs, fh = fc.height * fs;
-    const fx = Math.round(W / 2 - fw / 2), fy = H - fh - 6 * fs;
+    const fw = Math.round(fc.width * fs), fh = Math.round(fc.height * fs);
+    const fx = Math.round(W / 2 - fw / 2), fy = Math.round(H - fh - 6 * fs);
     g.fillStyle = 'rgba(10,6,6,0.85)';
     g.fillRect(fx - 3 * fs, fy - 3 * fs, fw + 6 * fs, fh + 6 * fs);
     g.fillStyle = '#3a1a14';

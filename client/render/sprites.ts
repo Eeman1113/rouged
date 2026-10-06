@@ -9,7 +9,7 @@ import { buildWall2, buildFloor2, buildCeiling2, buildCrate2 } from './art/textu
 import { buildVendor, buildShrine, buildScrap, buildShield, buildProjectile2, buildFoliage } from './art/props';
 import { buildWeapon } from './art/weapons';
 import * as H from './art/happy';
-import { buildFace } from './art/face';
+import { buildFaceHQ } from './art/faceHQ';
 import {
   buildGibs, buildBloodSprites, buildBloodDecal, buildScorch, buildSpark, buildMuzzle, buildProjectile,
   buildExplosion, buildMine, buildPickup, buildPedestalIcon,
@@ -95,7 +95,7 @@ export type FaceState = 'healthy' | 'hurt' | 'damaged' | 'critical' | 'grin' | '
 export function getFace(state: FaceState, age: number, frame: number): HTMLCanvasElement {
   const a = Math.round(Math.max(0, Math.min(1, age || 0)) * 10);
   const f = ((Math.floor(frame || 0) % 4) + 4) % 4;
-  return memo(`face:${state}:${a}:${f}`, () => buildFace(state, a / 10, f));
+  return memo(`face:${state}:${a}:${f}`, () => buildFaceHQ(state, a / 10, f));
 }
 
 // ------------------------------------------------------------------ fx
