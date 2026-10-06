@@ -311,6 +311,8 @@ npm run build      # typecheck + production build → dist/
 npm run simtest    # a bot plays the full descent against the real sim, headless
 ```
 
+<p align="center"><img src="docs/media/autopilot.jpg" width="80%"/><br/><i>The AI pilot on its first run, deep in phase III of THE CURATOR.</i></p>
+
 **Watch mode:** [`/test`](https://eeman1113.github.io/rouged/test/) is an attract mode. An AI pilot plays endlessly: it paths, dodges telegraphs, glory-kills, picks pedestals, shops and chooses doors. It keeps its own persistent save (`rouged.meta.ai.v1`), so your progress is never touched. Add `?speed=2` or `?speed=4` for faster play, use **TAKE OVER** (or press `O`) to grab the controls, and **RESET AI SAVE** to start the AI over.
 
 **Where it lives:**
