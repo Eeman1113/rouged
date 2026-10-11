@@ -15,7 +15,7 @@ const VT = "'VT323', 'Courier New', monospace";
 // layout, in art pixels (unslanted). The bottom block leans "/" by 1 px every 2 rows.
 const M = 4; // margin for shake / shards
 const HEAD = 9; // header rows (label + trace)
-const BOX_W = 36; // number box
+const BOX_W = 42; // number box: a 3-digit Press Start 2P number clears both slanted edges
 const GAP = 2;
 const BAR_W = 88; // health bar (incl. 1px border)
 const BAR_H = 14;
@@ -37,6 +37,8 @@ const C = {
   steel: [90, 184, 255], steelHi: [190, 228, 255], steelLo: [30, 80, 140],
 };
 type RGB = number[];
+const BLACK: RGB = [0, 0, 0];
+const STATIC: RGB = [140, 130, 120];
 const mix = (a: RGB, b: RGB, k: number): RGB => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 const css = (c: RGB, a = 1) => a >= 1 ? `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})` : `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a.toFixed(3)})`;
 const grey = (c: RGB, k: number): RGB => { const l = c[0] * 0.3 + c[1] * 0.55 + c[2] * 0.15; return mix(c, [l * 0.55, l * 0.5, l * 0.5], k); };
@@ -57,11 +59,16 @@ export class Vitals {
   /** unslanted bottom block (number box + bar + plating) at 1 art px = 1 px */
   private blk = document.createElement('canvas');
   private bg: CanvasRenderingContext2D;
+  private img = new ImageData(BLOCK_W, BLOCK_H);
+  private pd = this.img.data;
   private tint = document.createElement('canvas');
   private tg: CanvasRenderingContext2D;
   private u = 3; // device px per art px
   private touch = false;
   private dpr = 1;
+  private rawDpr = window.devicePixelRatio || 1;
+  private lastTf = '';
+  private sizedDpr = 0;
 
   /** motion comfort 0..1 (settings.shake; forced 0 under prefers-reduced-motion) */
   motion = 1;
@@ -109,25 +116,39 @@ export class Vitals {
     window.addEventListener('resize', () => this.resize());
   }
 
-  /** Pick the art-pixel size from the viewport: ~3 css px at 1080p, never under ~1.4 on phones, always whole device px. */
+  /** Pick the art-pixel size from the viewport: ~3 css px at 1080p, never under ~1.4 on phones, always whole device px.
+   *  The width limit is the real free space between the face (bottom centre, ~0.17 x height wide) and the gutter. */
   resize() {
     const touch = this.touch = document.body.classList.contains('touch');
-    this.dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-    // touch: the widget lives between the stick (186px) and the face (centre), so width is the limit there
-    const small = innerHeight < 600;
-    const limit = (touch ? innerWidth / 2 - 40 - 186 : innerWidth * (small ? 0.3 : 0.27)) / ART_W;
-    const ucss = Math.min(5, limit, Math.max(small ? 1.6 : 1.4, innerHeight / 360));
-    let u = Math.max(1, Math.round(ucss * this.dpr));
-    if (u > 1 && u / this.dpr > limit) u--;
-    this.u = u;
+    const dpr = this.dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    const W = innerWidth, H = innerHeight;
+    const faceHalf = 0.09 * H + 12;
+    const portrait = touch && H > W;
+    // desktop: gutter (18) to the face; touch landscape: stick (186) to the face; touch portrait: full width above the stick
+    const room = portrait ? W - 36 : touch ? W / 2 - faceHalf - 186 : W / 2 - faceHalf - 18;
+    const limit = Math.max(1 / dpr, room / (ART_W - 2 * M));
+    const ucss = Math.min(5, portrait ? 2.2 : 5, limit, Math.max(H < 600 ? 1.6 : 1.4, Math.min(H, portrait ? W * 1.6 : H) / 360));
+    let u = Math.max(1, Math.round(ucss * dpr));
+    if (u > 1 && u / dpr > limit) u--;
+    if (u === this.u && dpr === this.sizedDpr && this.cv.width === ART_W * u) return; // nothing changed: keep the backing store
+    this.u = u; this.sizedDpr = dpr;
     this.cv.width = ART_W * u; this.cv.height = ART_H * u;
-    this.cv.style.width = (this.cv.width / this.dpr) + 'px';
-    this.cv.style.height = (this.cv.height / this.dpr) + 'px';
-    this.el.style.setProperty('--vm', (M * u / this.dpr) + 'px');
+    this.cv.style.width = (this.cv.width / dpr) + 'px';
+    this.cv.style.height = (this.cv.height / dpr) + 'px';
+    this.el.style.setProperty('--vm', (M * u / dpr) + 'px');
+    // art rows under the block (the shard pad): lets CSS sit the block's bottom edge on the shared HUD baseline
+    this.el.style.setProperty('--vb', ((ART_H - (M + HEAD + 1 + BLOCK_H)) * u / dpr) + 'px');
   }
 
   /** Jump straight to the current state (new run, HUD shown again). */
-  snap() { this.init = false; }
+  snap() {
+    this.init = false;
+    // drop anything left over from the last life (death static, tags, shards) so a new run starts clean
+    this.sweeps.length = 0; this.shards.length = 0; this.tags.length = 0;
+    this.trickle = 0; this.trickleT = 0; this.reviveT = 0; this.ghostHold = 0; this.aHold = 0;
+    this.flash = this.shake = this.chroma = this.glitch = this.beatK = this.healK = this.gloryK = this.surgeK = this.numPop = this.numHeal = 0;
+    this.beatTimer = 0.5; this.beatQ = -1;
+  }
 
   setState(hp: number, max: number, armor: number, alive: boolean) {
     hp = Math.max(0, hp); max = Math.max(1, max); armor = Math.max(0, armor);
@@ -186,7 +207,7 @@ export class Vitals {
   beat() {
     this.beatK = 1;
     this.beatQ = 0;
-    this.beatTimer = 9;
+    this.beatTimer = 0.6; // idle beats resume promptly once HP climbs out of critical
   }
 
   glory() {
@@ -237,7 +258,7 @@ export class Vitals {
     const dt = this.last ? Math.min(0.1, now - this.last) : 1 / 60;
     this.last = now;
     this.time += dt;
-    if (document.body.classList.contains('touch') !== this.touch) this.resize(); // touch controls switch on lazily
+    if (document.body.classList.contains('touch') !== this.touch || (window.devicePixelRatio || 1) !== this.rawDpr) { this.rawDpr = window.devicePixelRatio || 1; this.resize(); } // touch switches on lazily; DPR changes across monitors
     const mot = this.reduced.matches ? 0 : clamp01(this.motion);
     const frac = this.hp / this.max;
     const crit = this.alive && frac < 0.3 ? 1 - frac / 0.3 : 0;
@@ -267,11 +288,11 @@ export class Vitals {
     if (this.deathT > 0) this.deathT += dt;
     if (this.trickleT > 0) { this.trickleT -= dt; if (this.trickleT <= 0 && this.trickle >= 1) { this.addTag(this.trickle, C.green, false); this.trickle = 0; } }
     for (const s of this.sweeps) s.t += dt;
-    this.sweeps = this.sweeps.filter((s) => s.t < s.dur);
+    if (this.sweeps.some((s) => s.t >= s.dur)) this.sweeps = this.sweeps.filter((s) => s.t < s.dur);
     for (const t of this.tags) t.t += dt;
-    this.tags = this.tags.filter((t) => t.t < 1.1);
+    if (this.tags.length && this.tags[0].t >= 1.1) this.tags = this.tags.filter((t) => t.t < 1.1);
     for (const s of this.shards) { s.life -= dt; s.vy += 140 * dt; s.x += s.vx * dt; s.y += s.vy * dt; }
-    this.shards = this.shards.filter((s) => s.life > 0);
+    if (this.shards.length) this.shards = this.shards.filter((s) => s.life > 0);
 
     // heart trace: rate follows HP and aggression; under 30% the game's heartbeat drives it (synced to the sfx)
     this.traceAcc += dt * 34;
@@ -296,26 +317,30 @@ export class Vitals {
     if (jit > 0.05) { this.sx = (Math.random() * 2 - 1) * jit; this.sy = (Math.random() * 2 - 1) * jit * 0.6; } else { this.sx = this.sy = 0; }
     this.sway.x += (Math.max(-1, Math.min(1, -lookDX * 0.04)) * 5 * mot - this.sway.x) * Math.min(1, dt * 6);
     this.sway.y += (Math.max(-1, Math.min(1, -lookDY * 0.04)) * 3 * mot - this.sway.y) * Math.min(1, dt * 6);
-    const sc = 1 + this.beatK * 0.035 * Math.max(0.3, mot) + this.numPop * 0.015 * mot;
-    this.el.style.transform = `translate(${(this.sx + this.sway.x).toFixed(1)}px,${(this.sy + this.sway.y).toFixed(1)}px) scale(${sc.toFixed(3)})`;
+    const sc = 1 + this.beatK * 0.035 * mot + this.numPop * 0.015 * mot;
+    const tf = `translate(${(this.sx + this.sway.x).toFixed(1)}px,${(this.sy + this.sway.y).toFixed(1)}px) scale(${sc.toFixed(3)})`;
+    if (tf !== this.lastTf) { this.lastTf = tf; this.el.style.transform = tf; }
     const op = (1 - this.dim * 0.3).toFixed(2);
     if (this.el.style.opacity !== op) this.el.style.opacity = op;
 
     // ── block: number box + bar + plating, unslanted at 1 art px
-    const b = this.bg;
-    b.clearRect(0, 0, BLOCK_W, BLOCK_H);
+    // written straight into a pixel buffer (one putImageData per frame instead of ~500 fillRect + fillStyle parses)
+    this.pd.fill(0);
+    const P = this.put;
     const dead = this.deathT > 0 ? Math.min(1, this.deathT * 1.5) : 0;
     const desat = (c: RGB) => (dead > 0 ? grey(c, dead) : c);
 
     // number box
-    b.fillStyle = 'rgba(10,6,6,0.88)'; b.fillRect(0, 0, BOX_W, BLOCK_H);
-    b.fillStyle = css(desat(critOn ? mix([90, 10, 13], C.red, this.beatK) : [90, 10, 13])); b.fillRect(0, 0, BOX_W, 1); b.fillRect(0, BLOCK_H - 1, BOX_W, 1); b.fillRect(0, 0, 1, BLOCK_H); b.fillRect(BOX_W - 1, 0, 1, BLOCK_H);
-    b.fillStyle = css(desat(mix(C.red, [255, 255, 255], this.flash * 0.6))); b.fillRect(1, 1, BOX_W - 2, 1);
+    P(0, 0, BOX_W, BLOCK_H, [10, 6, 6], 0.88);
+    const boxC = desat(critOn ? mix([90, 10, 13], C.red, this.beatK) : [90, 10, 13]);
+    P(0, 0, BOX_W, 1, boxC); P(0, BLOCK_H - 1, BOX_W, 1, boxC); P(0, 0, 1, BLOCK_H, boxC); P(BOX_W - 1, 0, 1, BLOCK_H, boxC);
+    P(1, 1, BOX_W - 2, 1, desat(mix(C.red, [255, 255, 255], this.flash * 0.6)));
 
     // health bar
     const inner = BAR_W - 2;
-    const cells = Math.max(5, Math.min(20, Math.round(this.max / 10)));
-    b.fillStyle = C.border; b.fillRect(BAR_X, 0, BAR_W, BAR_H);
+    // one cell per 10 HP; past 140 max (VITALITY stacks) one per 20, so cells never shrink below ~6 art px
+    const cells = Math.max(5, Math.min(14, Math.round(this.max / (this.max > 140 ? 20 : 10))));
+    P(BAR_X, 0, BAR_W, BAR_H, BLACK);
     const fx = (this.fill / this.max) * inner, hx = (this.hp / this.max) * inner, gx = (this.ghost / this.max) * inner;
     const shimX = (this.shimmer - 0.3) * inner; // band centre, travels past the end
     const shimA = 0.12 + this.energy * 0.75;
@@ -351,33 +376,31 @@ export class Vitals {
         if (d < 5 && cx <= Math.max(gx, hx) + 1) body = mix(body, s.c, (1 - d / 5) * (1 - p * 0.5));
       }
       body = desat(body);
-      if (cellEdge) { b.fillStyle = 'rgba(0,0,0,0.85)'; b.fillRect(px, 1, 1, BAR_H - 2); continue; }
+      if (cellEdge) continue; // the black border shows through
       const filled = cx <= Math.max(gx, hx);
-      b.globalAlpha = alpha;
-      b.fillStyle = css(filled ? mix(body, C.redHi.map((v, i) => Math.max(v, body[i])), 0.6) : [48, 13, 13]); b.fillRect(px, 1, 1, rowsHi);
-      b.fillStyle = css(body); b.fillRect(px, 1 + rowsHi, 1, BAR_H - 2 - rowsHi - rowsLo);
-      b.fillStyle = css(filled ? mix(body, [0, 0, 0], 0.45) : [26, 6, 7]); b.fillRect(px, BAR_H - 1 - rowsLo, 1, rowsLo);
-      b.globalAlpha = 1;
+      P(px, 1, 1, rowsHi, filled ? mix(body, [Math.max(C.redHi[0], body[0]), Math.max(C.redHi[1], body[1]), Math.max(C.redHi[2], body[2])], 0.6) : [48, 13, 13], alpha);
+      P(px, 1 + rowsHi, 1, BAR_H - 2 - rowsHi - rowsLo, body, alpha);
+      P(px, BAR_H - 1 - rowsLo, 1, rowsLo, filled ? mix(body, BLACK, 0.45) : [26, 6, 7], alpha);
     }
     // leading edge spark (heals, trickles)
     if (this.healK > 0.02 && this.alive) {
       const ex = BAR_X + 1 + Math.min(inner - 1, Math.round(hx));
-      b.fillStyle = css(mix(C.green, [255, 255, 255], 0.5), this.healK); b.fillRect(ex - 1, 0, 2, BAR_H);
+      P(ex - 1, 0, 2, BAR_H, mix(C.green, [255, 255, 255], 0.5), this.healK);
     }
     // death: static eats the bar right to left
     if (dead > 0) {
       const reach = inner * Math.min(1, this.deathT * 0.7);
       for (let i = 0; i < 26; i++) {
         const x = inner - Math.random() * reach;
-        b.fillStyle = Math.random() < 0.5 ? 'rgba(140,130,120,0.5)' : 'rgba(0,0,0,0.6)';
-        b.fillRect(BAR_X + 1 + (x | 0), 1 + ((Math.random() * (BAR_H - 2)) | 0), 1 + ((Math.random() * 3) | 0), 1);
+        const lit = Math.random() < 0.5;
+        P(BAR_X + 1 + (x | 0), 1 + ((Math.random() * (BAR_H - 2)) | 0), 1 + ((Math.random() * 3) | 0), 1, lit ? STATIC : BLACK, lit ? 0.5 : 0.6);
       }
     }
 
     // plating (armor), segmented by 10
     const py = BAR_H + PLATE_GAP;
     const showPlate = this.armor > 0 || this.aGhost > 0.5;
-    b.fillStyle = C.border; b.fillRect(BAR_X, py, PLATE_W, PLATE_H);
+    P(BAR_X, py, PLATE_W, PLATE_H, BLACK);
     const pin = PLATE_W - 2;
     const af = (this.aFill / 100) * pin, ag = (this.aGhost / 100) * pin;
     for (let x = 0; x < pin; x++) {
@@ -389,10 +412,12 @@ export class Vitals {
       else if (cx <= ag) c = this.aHold > 0.3 ? [255, 255, 255] : [200, 225, 245];
       for (const s of this.sweeps) { const p = s.t / s.dur, d = Math.abs(x - p * (pin + 10) + 5); if (d < 4 && cx <= af) c = mix(c, [255, 255, 255], (1 - d / 4) * 0.8); }
       c = desat(c);
-      b.fillStyle = css(cx <= ag ? mix(c, [255, 255, 255], 0.35) : c); b.fillRect(BAR_X + 1 + x, py + 1, 1, 1);
-      b.fillStyle = css(cx <= ag ? c : [10, 14, 22]); b.fillRect(BAR_X + 1 + x, py + 2, 1, PLATE_H - 3);
-      if (!showPlate) { b.fillStyle = 'rgba(0,0,0,0.4)'; b.fillRect(BAR_X + 1 + x, py + 1, 1, PLATE_H - 2); }
+      P(BAR_X + 1 + x, py + 1, 1, 1, cx <= ag ? mix(c, [255, 255, 255], 0.35) : c);
+      P(BAR_X + 1 + x, py + 2, 1, PLATE_H - 3, cx <= ag ? c : [10, 14, 22]);
+      if (!showPlate) P(BAR_X + 1 + x, py + 1, 1, PLATE_H - 2, BLACK, 0.4);
     }
+
+    this.bg.putImageData(this.img, 0, 0);
 
     // ── compose onto the widget canvas
     const g = this.g, u = this.u;
@@ -400,7 +425,8 @@ export class Vitals {
     g.clearRect(0, 0, this.cv.width, this.cv.height);
     g.imageSmoothingEnabled = false;
     const oy = M + HEAD + 1;
-    const glitchK = Math.max(this.glitch, crit * 0.35, dead * 0.5 * (this.deathT < 1.5 ? 1 : 0.3)) * Math.max(0.25, mot);
+    // row slicing is motion: it follows the comfort setting all the way to zero (colour cues stay)
+    const glitchK = Math.max(this.glitch, crit * 0.35, dead * 0.5 * (this.deathT < 1.5 ? 1 : 0.3)) * mot;
     // glow behind the bar: streak heat, glory gold, critical red
     const glowC = this.gloryK > 0.05 ? C.gold : critOn ? C.red : this.streak >= 3 ? [255, 90, 30] : C.amber;
     const glowA = Math.max(this.gloryK * 0.7, this.surgeK * 0.5, critOn ? 0.18 + this.beatK * 0.5 : 0, this.energy > 0.25 ? (this.energy - 0.25) * 0.9 : 0) * (1 - dead);
@@ -444,7 +470,7 @@ export class Vitals {
 
     // ── header: label + heart trace
     const headY = M + HEAD - 1;
-    const labX = (M + BAR_X + this.slant(0) + 1) * u;
+    const labX = (M + this.slant(0) + 1) * u; // header spans the whole block: label over the box, trace over the bar end
     let label = 'INTEGRITY';
     let labC: RGB = [170, 150, 135];
     if (dead > 0) { label = Math.floor(this.time * 3) % 2 ? 'SIGNAL LOST' : 'SIGNAL L0ST'; labC = C.red; }
@@ -471,7 +497,8 @@ export class Vitals {
     g.fillStyle = css(trC, 0.9 + 0.1 * Math.sin(this.time * 20)); g.fillRect((tx0 + TRACE_W) * u, (ty + Math.round(this.trace[TRACE_W - 1]) - 0) * u, u, u);
 
     // ── number (device-res pixel font, size on an 8 px grid so Press Start 2P stays crisp)
-    const nSize = 8 * Math.max(2, Math.round((u * 10.5) / 8));
+    // 3 glyphs must fit the box minus its slant (the box leans ~5 art px across the text height)
+    const nSize = 8 * Math.max(1, Math.min(Math.round((u * 10.5) / 8), Math.floor(((BOX_W - 7) * u + 3) / 24)));
     const n = Math.max(0, Math.ceil(this.disp - 0.001));
     const txt = String(dead > 0 ? 0 : n);
     g.font = `${nSize}px ${PX}`;
@@ -501,7 +528,7 @@ export class Vitals {
       g.font = `${aSize}px ${VT}`; g.textAlign = 'left'; g.textBaseline = 'middle';
       const ay = (oy + BAR_H + PLATE_GAP + PLATE_H / 2) * u;
       const ax = (M + BAR_X + PLATE_W + this.slant(BAR_H + PLATE_GAP + 1) + 2) * u;
-      const aTxt = Math.ceil(this.armor) + ' PLATE';
+      const aTxt = this.armor > 0 ? Math.ceil(this.armor) + ' PLATE' : 'BROKEN';
       g.fillStyle = '#000'; g.fillText(aTxt, ax + u * 0.7, ay + u * 0.7);
       g.fillStyle = css(desat(mix(C.steel, [255, 255, 255], Math.max(this.flash * 0.4, this.aHold > 0 ? 0.6 : 0))));
       g.fillText(aTxt, ax, ay);
@@ -516,13 +543,29 @@ export class Vitals {
       const a = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
       const s = '+' + Math.round(t.n);
       const x = tx;
-      if (x + g.measureText(s).width > (tx0 + TRACE_W) * u) break; // no room left (long label)
+      if (x + g.measureText(s).width > (tx0 - 2) * u) break; // no room before the trace (long label)
       tx += g.measureText(s).width + 3 * u;
       const y = (headY - k * 3) * u;
       g.fillStyle = `rgba(0,0,0,${a})`; g.fillText(s, x + u * 0.7, y + u * 0.7);
       g.fillStyle = css(mix(t.c, [255, 255, 255], k < 0.15 ? 0.6 : 0), a); g.fillText(s, x, y);
     }
   }
+
+  /** source-over fill of an art-pixel rect in the block buffer (same result as fillRect with an rgba colour) */
+  private put = (x: number, y: number, w: number, h: number, c: RGB, a = 1) => {
+    const d = this.pd;
+    const x0 = Math.max(0, x | 0), x1 = Math.min(BLOCK_W, (x + w) | 0), y0 = Math.max(0, y | 0), y1 = Math.min(BLOCK_H, (y + h) | 0);
+    if (a <= 0) return;
+    for (let yy = y0; yy < y1; yy++) {
+      for (let xx = x0; xx < x1; xx++) {
+        const i = (yy * BLOCK_W + xx) * 4;
+        if (a >= 1) { d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255; continue; }
+        const da = d[i + 3] / 255, oa = a + da * (1 - a);
+        const kd = (da * (1 - a)) / oa, ks = a / oa;
+        d[i] = c[0] * ks + d[i] * kd; d[i + 1] = c[1] * ks + d[i + 1] * kd; d[i + 2] = c[2] * ks + d[i + 2] * kd; d[i + 3] = oa * 255;
+      }
+    }
+  };
 
   /** row → horizontal offset of the "/" lean (row 0 = top of the block) */
   private slant(r: number) { return Math.floor((BLOCK_H - 1 - r) / 2); }
