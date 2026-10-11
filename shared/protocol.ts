@@ -218,7 +218,8 @@ export type GameEvent =
   | { e: 'latch'; enemy: number; id: string; on: boolean }
   | { e: 'shieldHit'; enemy: number; x: number; y: number; z: number }
   | { e: 'phoenix'; id: string }
-  | { e: 'trueEnding' }
+  /** `ids`: the players who were present for every Warden of the descent (only they get the ending) */
+  | { e: 'trueEnding'; ids?: string[] }
   // ── boss fight events (new; older clients fall through `default`) ──
   /** a boss starts a named move */
   | { e: 'bossMove'; enemy: number; move: string; name: string; phase: number }

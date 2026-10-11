@@ -48,9 +48,10 @@ function matchmake(hello: Extract<ClientMsg, { t: 'hello' }>): Run {
     for (const r of runs.values()) {
       if (r.state === 'lobby' && !r.solo && r.players.size < C.MAX_PLAYERS && r.difficulty === hello.difficulty) return r;
     }
-    // drop-in: join a run in progress that has space
+    // drop-in: join a run in progress that has space, but only before its first Warden falls
+    // (every Warden must be beaten to reach THE HANDLER; a late joiner would skip them)
     for (const r of runs.values()) {
-      if (r.state !== 'lobby' && r.state !== 'ended' && !r.solo && r.players.size < C.MAX_PLAYERS && r.difficulty === hello.difficulty && !r.ended) return r;
+      if (r.state !== 'lobby' && r.difficulty === hello.difficulty && r.acceptsDropIn()) return r;
     }
   }
   if (hello.seed && !hello.solo) {

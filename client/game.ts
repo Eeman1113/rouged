@@ -697,7 +697,8 @@ export class Game {
         break;
       }
       case 'trueEnding': {
-        // THE HANDLER is destroyed. Everything stops.
+        // THE HANDLER is destroyed. Everything stops. (Only for those who were there for every Warden.)
+        if (e.ids && !e.ids.includes(this.me)) break;
         music.death();
         const wv = WARDEN_VOICE[6];
         w.cast.say('warden', wv.death[0], 3);

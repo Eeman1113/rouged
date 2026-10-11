@@ -230,7 +230,7 @@ class App {
   showCoop() {
     const url = this.meta.settings.serverUrl || defaultServerUrl();
     const d = this.setScreen(`<div class="panel"><h2>CO-OP DEPLOY</h2>
-      <p>Drop-in co-op for 1–4 subjects. Shared seed, shared multiplier, individual powerups. The run starts when 4 join, after 15s, or when the host begins.</p>
+      <p>Drop-in co-op for 1–4 subjects. Shared seed, shared multiplier, individual powerups. The run starts when 4 join, after 15s, or when the host begins. You can drop into a run in progress only before its first Warden falls.</p>
       <label class="field">SIMULATION SERVER<input id="i-srv" value="${esc(url)}" placeholder="ws://host:8787"/></label>
       <p class="hint" style="text-align:left">Host one with <b>npm run server</b> (port 8787). On HTTPS pages use a <b>wss://</b> address.</p>
       <div class="row"><button class="btn primary" id="b-join">DEPLOY</button><button class="btn" id="b-back" data-back>BACK</button></div></div>`);
@@ -490,7 +490,7 @@ class App {
       lines.join('\n'),
       frag ? `\n\n>> FRAGMENT RECOVERED: ${frag.title}\n${frag.text}` : '',
       hub ? `\n\n>> ARCHIVE (${unlocked.length}/${FRAGMENTS.length})\n` + unlocked.slice(-6).map((f) => `[${f.title}]\n${f.text}`).join('\n\n') : '',
-      hub ? `\n\n>> SUBJECT RECORD\nRUNS LOGGED: ${this.meta.runCount}\nTERMINATIONS: ${this.meta.deaths}\nCOMPLETIONS: ${this.meta.victories}\nCORES: ${this.meta.cores}` : '',
+      hub ? `\n\n>> SUBJECT RECORD\nRUNS LOGGED: ${this.meta.runCount}\nTERMINATIONS: ${this.meta.deaths}\nEXTRACTIONS: ${this.meta.victories}\nCORES: ${this.meta.cores}` : '',
     ].join('');
     const d = document.createElement('div');
     d.className = 'terminal-view';
@@ -532,7 +532,9 @@ class App {
     const lv = metaLevel(this.meta);
     const unlocks = newUnlocks(res.prevLevel, res.newLevel);
     const prevFrac = res.newLevel > res.prevLevel ? 0 : Math.max(0, (lv.into - res.xpGained) / lv.need);
-    const line = handlerLine(s.victory ? 'victory' : 'death', preRunCountFor(this.meta), { name: this.meta.name, run: this.meta.runCount });
+    // walking out early is an extraction, not a completed descent: only the true ending gets the victory lines
+    const ctx = s.extracted && !s.trueEnding ? 'extract' : s.victory ? 'victory' : 'death';
+    const line = handlerLine(ctx, preRunCountFor(this.meta), { name: this.meta.name, run: this.meta.runCount });
     const d = this.setScreen(`
       <div class="death-title">${esc(title)}</div>
       <div class="death-sub">${esc(line ?? 'Subject terminated. Restoring from checkpoint.')}</div>

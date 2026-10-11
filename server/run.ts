@@ -2,9 +2,9 @@
 // and in the browser (solo, via LocalTransport).
 
 import type {
-  ClientMsg, Difficulty, Mutator, ShopItem, DoorSnap, EnemyType, GameEvent, ProjectileKind, ReplicaProfile, RoomDesc, RunState, RunSummary, ServerMsg, Snapshot, WeaponId,
+  ClientMsg, Difficulty, DoorKind, Mutator, ShopItem, DoorSnap, EnemyType, GameEvent, ProjectileKind, ReplicaProfile, RoomDesc, RunState, RunSummary, ServerMsg, Snapshot, WeaponId,
 } from '../shared/protocol';
-import { generateRoom, solidsFor, Box, RoomGeo, navBlockedAt, isBossIndex } from '../shared/mapData';
+import { generateRoom, solidsFor, Box, RoomGeo, navBlockedAt, isBossIndex, biomeOf } from '../shared/mapData';
 import { Leech } from './enemies/leech';
 import { Sentinel } from './enemies/sentinel';
 import { Bomber } from './enemies/bomber';
@@ -131,6 +131,16 @@ export class Run {
   holdClearUntil = -1;
   /** THE HAPPY PLACE: will it hold, and when does it decide */
   happy: { corrupt: boolean; decideAt: number; decided: boolean } | null = null;
+  /**
+   * Progression ledger. The descent's sector Wardens (biomes 0..BIOMES-1) actually killed this run.
+   * THE HANDLER's room and the true ending are gated on it, and a boss room never lets anyone out
+   * until its Warden is really dead.
+   */
+  wardensDown = new Set<number>();
+  /** Per player: which of those Wardens they were present for (drop-ins don't inherit the team's). */
+  playerWardens = new Map<string, Set<number>>();
+  /** who was in the run when the current room loaded (a mid-fight drop-in didn't fight this Warden) */
+  roster = new Set<string>();
 
   constructor(public host: RunHost, opts: RunOptions) {
     this.id = 'run' + (++RUN_COUNTER) + '_' + Math.floor(Math.random() * 1e6).toString(36);
@@ -150,6 +160,7 @@ export class Run {
   addPlayer(id: string, hello: Extract<ClientMsg, { t: 'hello' }>): SimPlayer {
     const p = new SimPlayer(id, hello.name.slice(0, 16) || 'SUBJECT', hello.level, hello.runCount, hello.unlocked, hello.replica ?? null, this.order.length);
     this.players.set(id, p);
+    this.playerWardens.set(id, new Set());
     this.order.push(id);
     if (!this.hostId) { this.hostId = id; this.runCount = hello.runCount; this.replicaProfile = hello.replica ?? null; }
     this.host.send(id, {
@@ -195,6 +206,45 @@ export class Run {
 
   alivePlayers(): SimPlayer[] {
     return [...this.players.values()].filter((p) => p.alive);
+  }
+
+  /**
+   * Co-op drop-in is only open until the first Warden falls (and never mid boss fight): every Warden
+   * has to be beaten to reach THE HANDLER, so nobody may join a descent that has already passed one.
+   */
+  acceptsDropIn(): boolean {
+    if (this.solo || this.ended || this.state === 'ended' || this.players.size >= C.MAX_PLAYERS) return false;
+    if (this.state === 'lobby') return true;
+    return this.wardensDown.size === 0 && !!this.room && this.room.kind !== 'boss' && !isBossIndex(this.room.index);
+  }
+
+  /** The sector Wardens that must be down before a room at `index` may be entered (descent only). */
+  wardensRequiredFor(index: number): number[] {
+    const out: number[] = [];
+    if (index >= C.FINAL_ROOM) return out; // the Endless: the descent is behind you
+    for (let i = 0; i < index; i++) if (isBossIndex(i)) out.push(biomeOf(i));
+    return out;
+  }
+
+  /** May the party walk from the current room into room `index`? */
+  mayEnter(index: number): boolean {
+    // THE HANDLER's room (the end of the descent) needs every sector Warden before it
+    if (index === C.FINAL_ROOM - 1) return this.wardensRequiredFor(index).every((b) => this.wardensDown.has(b));
+    return true;
+  }
+
+  /** Is this room's Warden really dead (killed, not despawned)? Non-boss rooms: always. */
+  bossDown(): boolean {
+    if (this.room?.kind !== 'boss') return true;
+    return !!this.boss && !this.boss.alive && this.boss.hp <= 0;
+  }
+
+  /** Has player `id` personally been present for every Warden of the descent? */
+  sawEveryWarden(id: string): boolean {
+    const w = this.playerWardens.get(id);
+    if (!w) return false;
+    for (let b = 0; b < C.BIOMES; b++) if (!w.has(b)) return false;
+    return true;
   }
 
   // ───────────────────────────── messages ─────────────────────────────
@@ -290,6 +340,7 @@ export class Run {
     this.holdClearUntil = -1;
     this.trialT = -1;
     this.happy = null;
+    this.roster = new Set(this.players.keys());
     this.mutator = desc.mutator;
     const past = Math.max(0, desc.index - (C.EXTRACT_FROM - 1));
     this.depthHp = 1 + past * C.DEPTH_HP_SCALE;
@@ -471,13 +522,20 @@ export class Run {
 
   onRoomCleared() {
     if (this.cleared) return;
-    this.cleared = true;
     const isBoss = this.room.kind === 'boss';
+    if (isBoss && !this.bossDown()) return; // a boss room only clears over its Warden's body
+    this.cleared = true;
     const xp = isBoss ? C.XP_PER_BOSS : C.XP_PER_ROOM;
+    const descentWarden = isBoss && this.room.index < C.FINAL_ROOM;
+    if (descentWarden) this.wardensDown.add(this.room.biome);
     for (const p of this.players.values()) {
       p.rooms++;
       p.xp += xp;
-      if (isBoss) p.bosses++;
+      // the Warden counts for whoever was here when the fight began (dead or alive), not a mid-fight drop-in
+      if (isBoss && this.roster.has(p.id)) {
+        p.bosses++;
+        if (descentWarden) this.playerWardens.get(p.id)?.add(this.room.biome);
+      }
     }
     this.emit({ e: 'roomClear', index: this.room.index, xp });
     this.state = 'reward';
@@ -487,10 +545,10 @@ export class Run {
     this.endZones();
     this.shockwaves = [];
     for (const p of this.players.values()) if (isBoss && p.mods.immortal) p.phoenixUsed = false;
-    if (isBoss && this.room.index === C.FINAL_ROOM - 1 && !this.trueEnding) {
-      // THE HANDLER is down. For a moment, nothing runs.
+    if (isBoss && this.room.index === C.FINAL_ROOM - 1 && !this.trueEnding && this.wardensDown.size >= C.BIOMES) {
+      // THE HANDLER is down, and so is every Warden above it. For a moment, nothing runs.
       this.trueEnding = true;
-      this.emit({ e: 'trueEnding' });
+      this.emit({ e: 'trueEnding', ids: [...this.players.keys()].filter((id) => this.sawEveryWarden(id)) });
       this.doorsOpenAt = this.time + 22;
       this.offerPedestals('epic', 3);
       return;
@@ -734,16 +792,39 @@ export class Run {
     return best >= 0 ? best : [...this.openDoors][0] ?? 0;
   }
 
+  /** May a door of this kind open in the current room? (no walking out of a live Warden, extract included) */
+  canOpen(kind: DoorKind): boolean {
+    if (!this.cleared || !this.bossDown()) return false;
+    return kind === 'extract' || this.mayEnter(this.room.index + 1);
+  }
+
+  /** Server-side exit rule: is leaving through `slot` allowed right now? */
+  canLeave(slot: number): boolean {
+    if (!this.openDoors.has(slot)) return false;
+    const ds = this.geo.doors.find((d) => d.slot === slot);
+    return !!ds && !ds.entry && this.canOpen(ds.kind);
+  }
+
   beginTransition(slot: number) {
     if (this.transitionT >= 0) return;
+    if (!this.canLeave(slot)) {
+      // refused: forget the votes so a countdown can't fire it again
+      this.doorCountdown = -1;
+      for (const p of this.players.values()) p.doorVote = -1;
+      return;
+    }
     this.transitionT = this.solo ? 0.35 : 0.6;
     this.transitionSlot = slot;
     this.state = 'transition';
   }
 
   doTransition() {
-    const ds = this.geo.doors.find((d) => d.slot === this.transitionSlot) ?? this.geo.doors.find((d) => !d.entry);
-    if (!ds) return;
+    const ds = this.geo.doors.find((d) => d.slot === this.transitionSlot);
+    if (!ds || !this.canLeave(ds.slot)) {
+      // never reached through a legal door vote; stay put
+      this.state = this.cleared ? 'reward' : this.room.kind === 'boss' ? 'boss' : 'combat';
+      return;
+    }
     if (ds.kind === 'extract') {
       // walk out. (It leads back to the hub. It always does.)
       this.extracted = true;
@@ -773,7 +854,7 @@ export class Run {
       died: !this.victory, victory: this.victory, anomalies: p.anomalies, favoriteWeapon: p.favoriteWeapon(),
       powerups: p.powerups.map((x) => x.id), synergies: p.synergies.slice(),
       xp: Math.round(p.xp * this.diff.xp), profile: this.profileOf(p),
-      depth: this.room ? this.room.index + 1 : 0, extracted: this.extracted, trueEnding: this.trueEnding, scrap: p.scrap,
+      depth: this.room ? this.room.index + 1 : 0, extracted: this.extracted, trueEnding: this.trueEnding && this.sawEveryWarden(p.id), scrap: p.scrap,
     }));
     this.emit({ e: 'runEnd', summary });
     this.flush();
@@ -958,6 +1039,8 @@ export class Run {
           for (const p of this.alivePlayers()) this.damagePlayer(p, 8, p.x, p.y + 4, p.z, false, null);
         }
       }
+      // a Warden that left the room without dying (despawn, stray delete) is put back: the fight isn't over
+      if (this.boss && this.boss.alive && this.room.kind === 'boss' && !this.enemies.has(this.boss.id)) this.enemies.set(this.boss.id, this.boss);
       const pending = this.spawnQueue.length > 0 || (this.room.kind === 'gauntlet' && !this.gauntletBackSpawned);
       if (!pending && this.enemies.size === 0 && this.tickN > 5 && this.time >= this.holdClearUntil) {
         if (this.room.kind === 'arena' && this.wave < this.waves.length) this.nextWave();
@@ -969,10 +1052,13 @@ export class Run {
 
     if (this.doorsOpenAt >= 0 && this.time >= this.doorsOpenAt) {
       this.doorsOpenAt = -1;
-      for (const d of this.geo.doors) if (!d.entry) this.openDoors.add(d.slot);
-      this.solids = solidsFor(this.geo, this.openDoors);
-      this.flow.clear();
-      this.emit({ e: 'doorsOpen' });
+      // only doors the server would actually let you through (the client is never offered a refused exit)
+      for (const d of this.geo.doors) if (!d.entry && this.canOpen(d.kind)) this.openDoors.add(d.slot);
+      if (this.openDoors.size) {
+        this.solids = solidsFor(this.geo, this.openDoors);
+        this.flow.clear();
+        this.emit({ e: 'doorsOpen' });
+      }
     }
     if (this.doorCountdown >= 0) {
       this.doorCountdown -= dt;
