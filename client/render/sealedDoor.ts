@@ -12,6 +12,7 @@ const CW = 128, CH = 192; // canvas px for the door (53.3 px per metre)
 const PPM = CW / DOOR35.w;
 const SEAL = { x: 64, y: 82, r: 40 };
 const SOCKET_R = 9;
+const LABEL_Y = 148; // the THE HANDLER stencil (door-canvas px)
 const N = 7;
 
 /** socket centre in door-canvas px */
@@ -113,7 +114,7 @@ function paintClosed(label = true): HTMLCanvasElement {
   }
   // stencils
   stencil(g, '35', SEAL.x, SEAL.y - 12, 5, '#cfc6b2', 1);
-  if (label) stencil(g, 'THE HANDLER', 64, 148, 2, '#a59d8a', 1);
+  if (label) stencil(g, 'THE HANDLER', 64, LABEL_Y, 2, '#a59d8a', 1);
   return c;
 }
 
@@ -141,7 +142,7 @@ function paintOpen(): HTMLCanvasElement {
   g.moveTo(x, y);
   while (y < SEAL.y + SEAL.r + 13) { y += 5; x = 64 + (Math.round(hash(y) * 4) - 2); g.lineTo(x, y); }
   g.stroke(); g.restore();
-  stencil(g, 'THE HANDLER', 64, 148, 2, '#a59d8a', 1);
+  stencil(g, 'THE HANDLER', 64, LABEL_Y, 2, '#a59d8a', 1);
   return c;
 }
 
@@ -165,6 +166,8 @@ export class SealedDoor {
   private t = 0;
   /** where to stand to read it */
   readonly front = { x: DOOR35.x, z: DOOR35.z + 1.1 };
+  /** just above the THE HANDLER stencil: the [E] prompt stands on it, over the bare rim under the seal, covering neither */
+  readonly promptAnchor = new THREE.Vector3(DOOR35.x, DOOR35.h - (LABEL_Y - 5) / PPM, DOOR35.z + 0.05);
 
   /** `sigils` already lit; `open` once the true ending has been seen */
   constructor(sigils: number[], readonly open: boolean) {

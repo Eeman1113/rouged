@@ -3,6 +3,7 @@
 import type { RoomDesc } from '../shared/protocol';
 import { generateRoom } from '../shared/mapData';
 import { hashString } from '../shared/rng';
+import * as THREE from 'three';
 import type { World } from './world';
 import type { Meta } from './meta';
 import { hubState, HubState, terminalText } from './story/fragments';
@@ -110,6 +111,7 @@ export class Hub {
     // prompts
     const h = w.hud;
     let prompt: string | null = null;
+    let pinToDoor = false;
     const dt2 = Math.hypot(this.terminal.x - lp.x, this.terminal.z - lp.z);
     if (dt2 < 2) {
       prompt = inp.touchMode ? 'USE · TERMINAL' : '[E] TERMINAL';
@@ -119,10 +121,10 @@ export class Hub {
     const dd = Math.hypot(this.door35.front.x - lp.x, this.door35.front.z - lp.z);
     if (!prompt && dd < 1.9) {
       const label = doorPrompt(this.meta.sigils.length, this.door35.open);
-      prompt = inp.touchMode ? 'USE · ' + label : '[E] ' + label;
+      prompt = inp.touchMode ? 'USE · ' + label : inp.padActive ? '[□] ' + label : '[E] ' + label;
       if (inp.pressed.has('use') && this.cb.onInspect) { sfx.terminalBeep(); this.cb.onInspect(doorReadout(this.meta.sigils, this.door35.open)); }
+      pinToDoor = true;
     }
-    h.prompt(prompt);
     this.door35.update(dt);
     // the door: walk through to deploy
     if (!this.deployed && lp.z < -w.geo!.d / 2 - 0.4) {
@@ -140,8 +142,20 @@ export class Hub {
     w.r.update(dt);
     w.updateFx(dt);
     w.updateCamera(dt, Math.hypot(lp.s.vx, lp.s.vz));
+    h.prompt(prompt, pinToDoor ? this.anchorOnScreen(this.door35.promptAnchor) : null);
     w.render();
     inp.endFrame();
+  }
+
+  private readonly v3 = new THREE.Vector3();
+  /** a world point in HUD px (the HUD keeps the box on screen); null when it's behind the camera (the prompt then sits under the crosshair) */
+  private anchorOnScreen(p: THREE.Vector3): { x: number; y: number } | null {
+    const cam = this.world.r.camera;
+    cam.updateMatrixWorld();
+    const v = this.v3.copy(p).project(cam);
+    if (v.z > 1) return null;
+    const el = document.getElementById('hud')!;
+    return { x: (v.x * 0.5 + 0.5) * el.clientWidth, y: (-v.y * 0.5 + 0.5) * el.clientHeight };
   }
 
   dispose() {

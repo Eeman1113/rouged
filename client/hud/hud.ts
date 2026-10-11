@@ -221,11 +221,22 @@ export class Hud {
     if (this.els['h-powerups'].innerHTML !== html) this.els['h-powerups'].innerHTML = html;
   }
 
-  prompt(text: string | null) {
+  /** `at`: pin the prompt's bottom centre to this screen point (px) instead of under the crosshair */
+  prompt(text: string | null, at: { x: number; y: number } | null = null) {
     const el = this.els['h-prompt'];
-    if (!text) { el.classList.remove('on'); return; }
-    if (el.textContent !== text) el.textContent = text;
-    el.classList.add('on');
+    if (!text) { el.classList.remove('on'); at = null; }
+    else {
+      if (el.textContent !== text) el.textContent = text;
+      el.classList.add('on');
+    }
+    if (at) {
+      // keep the whole box on screen, and above the subtitles
+      const pw = el.offsetWidth / 2 + 8, W = this.root.clientWidth, H = this.root.clientHeight;
+      at = { x: Math.max(pw, Math.min(W - pw, at.x)), y: Math.max(el.offsetHeight + 8, Math.min(H * 0.74, at.y)) };
+    }
+    const left = at ? at.x.toFixed(0) + 'px' : '', top = at ? at.y.toFixed(0) + 'px' : '';
+    if (el.style.left !== left) { el.style.left = left; el.style.top = top; el.style.transform = at ? 'translate(-50%, -100%)' : ''; }
+    else if (el.style.top !== top) el.style.top = top;
   }
 
   pedestalInfo(p: Pedestal | null, key: string) {
