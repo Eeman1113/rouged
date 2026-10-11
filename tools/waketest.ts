@@ -5,6 +5,7 @@ import { Run } from '../server/run';
 import type { DoorKind, GameEvent, RunSummary, ServerMsg } from '../shared/protocol';
 import * as C from '../shared/constants';
 import { applyRun, defaultMeta, deriveSigils, migrateMeta, runSigils, type Meta } from '../client/meta';
+import { HandlerVoice } from '../client/audio/handler';
 import {
   WAKE_CORRIDOR, doorPrompt, doorReadout, eyeTeaseDue, plainLine, wakeLines, wakeReadout, wakeTier,
 } from '../client/story/awakening';
@@ -84,6 +85,29 @@ console.log('\n── the false awakening: tiers, lines, readout');
   ];
   check(all.every((t) => !t.includes('—') && !t.includes('–')), `no em or en dashes in ${all.length} new lines`);
   check(all.every((t) => plainLine(t).length < 90), 'every line is short');
+  // every depth an early extraction can happen at, plus the deepest room before THE HANDLER
+  for (const [d, n, tier] of [[15, 3, 'shallow'], [20, 4, 'shallow'], [25, 5, 'deep'], [30, 6, 'nervous'], [34, 6, 'nervous']] as const) {
+    const r = wakeReadout({ wardens: n, depth: d, first: false, trueEndingSeen: false });
+    const risk = r.find((l) => l.includes('RETENTION'));
+    check(wakeTier(d) === tier && r[1] === `> SAMPLE INCOMPLETE. ${n} OF 7 WARDENS.` && (tier === 'shallow' ? !risk : tier === 'deep' ? risk === '> RETENTION RISK: MODERATE.' : risk === '> RETENTION RISK: HIGH.'), `depth ${d}: ${tier}, ${n} of 7, ${risk ?? 'no retention line'}`);
+  }
+  check(same(runSigils(sum({ depth: 34 })), [0, 1, 2, 3, 4, 5]) && same(runSigils(sum({ depth: 25, extracted: true })), [0, 1, 2, 3, 4]), 'old server: died at 34 six, extracted at 25 five');
+}
+
+console.log('\n── the false awakening lines stay readable (no per-letter corruption), the glitch stays elsewhere');
+{
+  let subs: string[] = [];
+  const v = new HandlerVoice((t) => subs.push(t), () => {});
+  v.setEnabled(false);
+  const lines = ['Welcome back.', "You were close. Don't do that again.", 'That was close. [g] Stay up here. With me.', "There's nothing at thirty-five. [pause] Nothing you need to see."];
+  for (let i = 0; i < 300; i++) for (const l of lines) { v.cancel(); v.say(l, { runCount: 30, priority: 9, readable: true }); }
+  const bad = subs.filter((t) => /█/.test(t.replace('That was close. █ Stay', '')));
+  check(subs.length === 1200 && bad.length === 0, `readable: 1200 phase-4 subtitles, ${bad.length} with corrupted letters`);
+  check(subs.includes('That was close. █ Stay up here. With me.'), 'the intentional [g] blackout is kept');
+  subs = [];
+  for (let i = 0; i < 300; i++) { v.cancel(); v.say("You were close. Don't do that again.", { runCount: 30, priority: 9 }); }
+  check(subs.some((t) => t.includes('█')), 'other phase-4 lines still corrupt letters');
+  v.cancel();
 }
 
 // ───────────────────────────── 4. the sim: extraction never grants the true ending ─────────────────────────────
@@ -115,7 +139,7 @@ function play(h: Harness, stop: () => boolean, pick: (k: DoorKind) => boolean, l
     tick(h);
   }
 }
-for (const depth of [15, 30]) {
+for (const depth of [15, 20, 25, 30]) {
   const h = make('WAKE_' + depth);
   // go deeper until the Warden at index depth-1 is down, then take the extract door
   play(h, () => false, (k) => (k === 'extract' ? h.run.room.index >= depth - 1 : true));
@@ -127,6 +151,23 @@ for (const depth of [15, 30]) {
   const r = applyRun(m, s!);
   check(!m.trueEndingSeen && m.sigils.length === depth / 5 && r.freshSigils.length === depth / 5, `  meta: trueEndingSeen ${m.trueEndingSeen}, ${m.sigils.length} sigils lit`);
   check(wakeReadout({ wardens: runSigils(s!).length, depth: s!.depth, first: true, trueEndingSeen: m.trueEndingSeen })[1] === `> SAMPLE INCOMPLETE. ${depth / 5} OF 7 WARDENS.`, '  the readout uses the run\'s real count');
+}
+{
+  // co-op: a second subject drops in after the first Warden. Each client counts from its own summary.
+  const h: Harness = { run: null as unknown as Run, ev: [], summary: null };
+  const on = (m: ServerMsg) => { if (m.t === 'events') for (const e of m.ev) { h.ev.push(e); if (e.e === 'runEnd') h.summary = e.summary; } };
+  h.run = new Run({ send: (_id, m) => on(m), broadcast: on }, { solo: false, difficulty: 'normal', seed: 'WAKE_COOP' });
+  const hello = (name: string) => ({ t: 'hello' as const, name, level: 30, runCount: 12, unlocked: ['pulse', 'breacher', 'lance', 'ripper'] as const, replica: null, difficulty: 'normal' as const, solo: false });
+  h.run.addPlayer('p1', hello('P1') as never);
+  h.run.start();
+  play(h, () => h.run.room.index >= 6, () => true);
+  h.run.addPlayer('p2', hello('P2') as never);
+  play(h, () => false, (k) => (k === 'extract' ? h.run.room.index >= 19 : true));
+  const s1 = h.summary?.find((x) => x.id === 'p1'), s2 = h.summary?.find((x) => x.id === 'p2');
+  check(!!s1 && !!s2 && s1.extracted && s1.depth === 20, `co-op extracted at ${s1?.depth}`);
+  check(!!s1 && same(runSigils(s1), [0, 1, 2, 3]) && !!s2 && same(runSigils(s2), [1, 2, 3]), `co-op ledgers: host ${s1 && runSigils(s1)}, late joiner ${s2 && runSigils(s2)}`);
+  const m2 = defaultMeta(); applyRun(m2, s2!);
+  check(same(m2.sigils, [1, 2, 3]) && wakeReadout({ wardens: runSigils(s2!).length, depth: s2!.depth, first: true, trueEndingSeen: false })[1].includes('3 OF 7'), 'late joiner: own sigils, own readout (3 of 7)');
 }
 {
   // the only way: every Warden, then THE HANDLER, then the way out

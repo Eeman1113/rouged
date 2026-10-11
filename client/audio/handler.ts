@@ -7,6 +7,8 @@ import { handlerPhase } from '../story/handlerLines';
 export interface HandlerVoiceOpts {
   runCount: number;
   priority?: number; /* higher interrupts lower */
+  /** keep every letter of the subtitle: no per-letter █ corruption ([g] blackouts still show) */
+  readable?: boolean;
 }
 
 type ChunkKind = 'speak' | 'other' | 'glitch' | 'pause';
@@ -104,7 +106,7 @@ function parseMarkup(text: string): Chunk[] {
   return chunks;
 }
 
-function subtitleText(text: string, pv: PhaseVoice, phase: number, rnd: () => number): string {
+function subtitleText(text: string, pv: PhaseVoice, phase: number, rnd: () => number, readable = false): string {
   let s = text
     .replace(/\[g\]/gi, phase >= 3 && phase <= 5 ? '█' : '')
     .replace(/\[pause\]/gi, '')
@@ -112,7 +114,7 @@ function subtitleText(text: string, pv: PhaseVoice, phase: number, rnd: () => nu
     .replace(/~/g, '-')
     .replace(/\s{2,}/g, ' ')
     .trim();
-  if (pv.charCorrupt > 0) {
+  if (pv.charCorrupt > 0 && !readable) {
     let out = '';
     for (const ch of s) out += /[A-Za-z]/.test(ch) && rnd() < pv.charCorrupt ? '█' : ch;
     s = out;
@@ -268,7 +270,7 @@ export class HandlerVoice {
     const phase = handlerPhase(opts.runCount);
     const pv = PHASES[phase] ?? PHASES[0]!;
     const chunks = parseMarkup(text);
-    const display = subtitleText(text, pv, phase, this.rnd);
+    const display = subtitleText(text, pv, phase, this.rnd, opts.readable);
 
     try {
       this.onSubtitle(display, pv.subtitleGlitch);

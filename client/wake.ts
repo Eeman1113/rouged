@@ -8,6 +8,7 @@
 
 import type { World } from './world';
 import { sfx, LoopHandle } from './audio/sfx';
+import { music } from './audio/music';
 import { plainLine, wakeLines, wakeReadout } from './story/awakening';
 import { esc } from './hud/killfeed';
 
@@ -139,6 +140,10 @@ export class FalseAwakening {
   private eyeAt: number;
   private glitchAt: number;
   private glitchLen: number;
+  /** the latest the tear may wait for the voice */
+  private glitchCap: number;
+  private holdAt = 0;
+  private skipped = false;
   readonly skippable: boolean;
 
   constructor(private world: World, private plan: WakePlan, private cb: WakeCallbacks) {
@@ -151,6 +156,7 @@ export class FalseAwakening {
     this.eyeAt = plan.eye ? this.lineAt + lineLen * 0.55 : Infinity;
     this.glitchAt = Math.max(this.lineAt + lineLen + 0.35, plan.eye ? this.eyeAt + 1.35 : 0);
     this.glitchLen = r ? 0.6 : 0.9;
+    this.glitchCap = this.glitchAt + 3;
 
     this.el = document.createElement('div');
     this.el.className = 'wake';
@@ -165,18 +171,22 @@ export class FalseAwakening {
     if (this.skippable) {
       this.hint = document.createElement('div');
       this.hint.className = 'wake-skip';
-      this.hint.textContent = world.input.touchMode ? 'TAP TO SKIP' : world.input.padActive ? '✕ SKIP' : '[SPACE] SKIP';
+      this.hint.textContent = world.input.touchMode ? 'TAP TO SKIP' : world.input.padActive ? 'SKIP [✕]' : 'SKIP [SPACE]';
       this.el.appendChild(this.hint);
     }
     this.rain = sfx.morningRain();
+    // failsafe: whatever happens to the frame loop, the morning always ends
+    this.later(this.glitchCap + this.glitchLen + 12, () => this.doCut());
     this.draw();
     this.raf = requestAnimationFrame(() => this.tick());
   }
 
   /** Skip to the tear (only after the first false awakening). */
   skip() {
-    if (!this.skippable || this.cut || this.t >= this.glitchAt) return;
+    // a short grace: the press that opened the eyes (key repeat, pad, tap) must not also skip them
+    if (!this.skippable || this.cut || this.t >= this.glitchAt || this.t < 0.5) return;
     this.world.voice.cancel();
+    this.skipped = true;
     this.said.welcome = this.said.line = this.said.eye = true;
     this.glitchAt = this.t;
     this.glitchLen = 0.4;
@@ -190,11 +200,17 @@ export class FalseAwakening {
     this.t += dt;
     const t = this.t;
     const w = this.world, p = this.plan;
-    if (!this.said.welcome && t >= this.welcomeAt) { this.said.welcome = true; w.voice.say(this.lines.welcome, { runCount: this.lines.voiceRun, priority: 9 }); }
-    if (!this.said.line && t >= this.lineAt) { this.said.line = true; w.voice.say(this.lines.line, { runCount: this.lines.voiceRun, priority: 9 }); }
+    if (!this.said.welcome && t >= this.welcomeAt) { this.said.welcome = true; w.voice.say(this.lines.welcome, { runCount: this.lines.voiceRun, priority: 9, readable: true }); }
+    if (!this.said.line && t >= this.lineAt) { this.said.line = true; w.voice.say(this.lines.line, { runCount: this.lines.voiceRun, priority: 9, readable: true }); }
     if (!this.said.eye && t >= this.eyeAt) { this.said.eye = true; sfx.staticBurst(0.25); }
+    // the morning holds until the Handler has finished lying (a slow voice can run past the estimate)
+    if (!this.said.glitch && t >= this.glitchAt && !this.skipped && w.voice.speaking && t < this.glitchCap) this.glitchAt = t + 0.05;
+    // the band holds its breath: short holds keep it quiet without stacking swells (the hub resumes it on load)
+    if (!this.said.glitch && t >= this.holdAt) { this.holdAt = t < 0.6 ? t : t + 0.3; music.silence(0.9); }
     if (!this.said.glitch && t >= this.glitchAt) {
       this.said.glitch = true;
+      // it comes back in with the room: one swell landing on the cut
+      music.silence(Math.max(1, this.glitchLen + 0.15));
       sfx.staticBurst(this.glitchLen);
       if (!p.reduced) w.glitch(1);
       this.rain?.stop(); this.rain = null;
@@ -293,6 +309,7 @@ export class FalseAwakening {
     if (this.cut) return;
     this.cut = true;
     cancelAnimationFrame(this.raf);
+    this.rain?.stop(); this.rain = null;
     this.el.remove();
     if (!this.plan.reduced) this.world.flash(0.55);
     this.cb.onCut();

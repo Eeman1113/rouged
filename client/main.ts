@@ -62,7 +62,7 @@ class App {
     document.addEventListener('keydown', () => audio.unlock(), { capture: true });
     // skipping the morning (only after the first one): space / enter / tap / click
     const skipWake = () => { if (this.wake?.playing && !this.paused) this.wake.skip(); };
-    window.addEventListener('keydown', (e) => { if (e.code === 'Space' || e.code === 'Enter') skipWake(); });
+    window.addEventListener('keydown', (e) => { if (!e.repeat && (e.code === 'Space' || e.code === 'Enter')) skipWake(); });
     window.addEventListener('pointerdown', skipWake);
     document.getElementById('gl')!.addEventListener('click', () => {
       if ((this.mode === 'run' || this.mode === 'hub') && !this.paused && !this.world.input.locked && !this.autopilot?.active) this.world.input.requestLock();
@@ -81,8 +81,9 @@ class App {
     try {
       const waking = !!this.wake?.playing;
       const gameplay = (this.mode === 'run' || this.mode === 'hub') && !this.paused && !this.terminalOpen && !waking;
-      if (waking && this.world.input.pad.state.pressed.has(BTN.CROSS)) this.wake!.skip();
       this.world.input.pollPad(dt, gameplay);
+      // pad X skips the morning (read after this frame's poll: last frame's press opened the eyes)
+      if (waking && !this.paused && this.world.input.pad.state.pressed.has(BTN.CROSS)) this.wake!.skip();
       // touch stick + buttons only during play: over menus they hide items and eat taps
       const tr = this.touchEl ??= document.getElementById('touch');
       if (tr) { const disp = gameplay ? '' : 'none'; if (tr.style.display !== disp) tr.style.display = disp; }
@@ -589,7 +590,7 @@ class App {
         p.textContent = (line.speaker === 'terminal' ? '' : line.speaker === 'system' ? '[SYSTEM] ' : '') + line.text;
         p.style.margin = '6px 0';
         el.appendChild(p);
-        if (line.speaker === 'handler') this.world.voice.say(line.text, { runCount: this.meta.runCount, priority: 9 });
+        if (line.speaker === 'handler') this.world.voice.say(line.text, { runCount: this.meta.runCount, priority: 9, readable: true });
         else this.world.cast.say('system', line.text, 2);
       }, t));
     }
@@ -609,8 +610,6 @@ class App {
       onDone: () => { this.hub?.wakeDone(); if (this.wake === wake) this.wake = null; },
     });
     this.wake = wake;
-    // the band holds its breath until the room comes back
-    setTimeout(() => { if (this.wake === wake && wake.playing) music.silence(Math.max(1, wake.cutAt - wake.elapsed)); }, 320);
   }
 
   showDeath(s: RunSummary, res: ReturnType<typeof applyRun>, frag: Fragment | null, wake: WakePlan | null = null) {
