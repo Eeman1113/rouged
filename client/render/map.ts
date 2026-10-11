@@ -221,9 +221,11 @@ export class MapView {
       const nextLbl = ds.entry ? '' : `${DOOR_LABEL[kind]}\n${geo.desc.kind === 'hub' ? 'DEPLOY' : kind === 'extract' ? 'END THE RUN' : KIND_LABEL[ds.nextKind]}${ds.mutator ? '\n⚠ ' + MUTATOR_NAME[ds.mutator] : ''}${geo.desc.kind === 'boss' && kind !== 'extract' && geo.desc.index >= 14 ? '\nGO DEEPER' : ''}`;
       const lc = textCanvas(nextLbl, '#' + new THREE.Color(LABEL_COLOR[kind] ?? color).getHexString(), 22, "'VT323', monospace", '#000');
       const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(lc), transparent: true, depthWrite: false, fog: true }));
-      const s = 0.035;
+      // low rooms (6 m): shrink the label to fit between the door top and the ceiling instead of clipping it
+      const room = geo.h - p.y1; // headroom above the door (the hub's is ~0: keep the old placement there)
+      const s = room > 1.2 ? Math.min(0.035, (room - 0.25) / lc.height) : 0.035;
       label.scale.set(lc.width * s, lc.height * s, 1);
-      label.position.set(ds.x + ds.nx * 0.8, p.y1 + 1.4, ds.z + ds.nz * 0.8);
+      label.position.set(ds.x + ds.nx * 0.8, room > 1.2 ? Math.min(p.y1 + 1.4, geo.h - 0.1 - (lc.height * s) / 2) : p.y1 + 1.4, ds.z + ds.nz * 0.8);
       label.visible = false;
       this.group.add(label);
       const light = new THREE.PointLight(color, 0, 7, 1.5);
@@ -303,7 +305,7 @@ export class MapView {
         if (d.v === 1) {
           const c = textCanvas('THE BROKER\nscrap for salvation', '#2affd0', 24, "'VT323', monospace", '#000');
           const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(c), transparent: true, color: new THREE.Color(2, 2, 2), depthWrite: false }));
-          sp.scale.set(c.width * 0.03, c.height * 0.03, 1); sp.position.set(d.x, d.y, d.z); this.group.add(sp);
+          sp.scale.set(c.width * 0.022, c.height * 0.022, 1); sp.position.set(d.x, d.y, d.z); this.group.add(sp);
           break;
         }
         if (!opts.whisper) break;

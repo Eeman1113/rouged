@@ -531,7 +531,7 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
     case 'anomaly': w = rng.int(18, 24); d = rng.int(20, 26); h = 9; break;
     case 'boss': w = 50; d = 50; h = 16; break;
     case 'hub': w = 10; d = 12; h = 4.2; break;
-    case 'shop': w = 18; d = 18; h = 6; break;
+    case 'shop': w = 18; d = 18; h = 7; break; // 7: the exit label above the back door clears THE BROKER sign
     case 'sanctuary': w = 14; d = 16; h = 8; break;
     case 'trial': w = 30; d = 30; h = 9; break;
     // open sky: the "walls" are invisible and tall enough that nobody jumps out of the memory
@@ -625,7 +625,7 @@ export function generateRoom(desc: RoomDesc, totalRooms = 15): RoomGeo {
   } else if (desc.kind === 'shop') {
     decor.push({ kind: 'vendor', x: 0, y: 0, z: -hd + 2.6, nx: 0, nz: 1, v: 0 });
     b.add(-3, 0, -hd + 1.2, 3, 0.9, -hd + 1.9, 'crate', 0); // the counter
-    decor.push({ kind: 'text', x: 0, y: 4.2, z: -hd + 1.5, nx: 0, nz: 1, v: 1 });
+    decor.push({ kind: 'text', x: 0, y: 3.65, z: -hd + 1.5, nx: 0, nz: 1, v: 1 });
   } else if (desc.kind === 'sanctuary') {
     decor.push({ kind: 'shrine', x: 0, y: 0, z: -2, nx: 0, nz: 1, v: 0 });
     decor.push({ kind: 'terminal', x: -hw + 0.05, y: 1.7, z: 1, nx: 1, nz: 0, v: 2 });
