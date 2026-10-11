@@ -876,6 +876,7 @@ export class Game {
     if (first) this.cb.onStarted();
     this.room = room;
     this.roomTotal = total;
+    w.cast.drop('broker'); // a queued Broker line must not follow you out of the shop
     this.openDoors.clear();
     this.pedestals = null;
     this.killedIds.clear();
@@ -944,7 +945,7 @@ export class Game {
     else if (room.kind === 'shop') {
       this.brokerVisits++;
       const lore = this.meta.runCount + this.brokerVisits > 4 && Math.random() < 0.4;
-      setTimeout(() => w.cast.say('broker', lore ? pickLine(BROKER_LINES.lore) : pickLine(BROKER_LINES.greet), 2), 900);
+      setTimeout(() => { if (this.room === room) w.cast.say('broker', lore ? pickLine(BROKER_LINES.lore) : pickLine(BROKER_LINES.greet), 2); }, 900);
       w.hud.announcer.show('THE BROKER', 'green', 'SCRAP FOR SALVATION');
       w.say('shopEnter', this.runCount, 1, 30);
     }

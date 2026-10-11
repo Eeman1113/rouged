@@ -91,6 +91,8 @@ export class VoiceCast {
   }
 
   clear() { this.queue = []; }
+  /** Forget queued (not yet spoken) lines from one speaker. */
+  drop(speaker: Speaker) { this.queue = this.queue.filter((l) => l.speaker !== speaker); }
 
   private speak(line: Line) {
     const p = PROFILES[line.speaker];
