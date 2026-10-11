@@ -42,7 +42,8 @@ export interface AppLike {
   closeTerminal(): void;
 }
 
-export interface RunLog { n: number; depth: number; rooms: number; kills: number; bosses: number; time: number; extracted: boolean; score: number; at: number; cause: string }
+/** `extracted`: walked out early (never, by design); `trueEnding`: beat every Warden and THE HANDLER */
+export interface RunLog { n: number; depth: number; rooms: number; kills: number; bosses: number; time: number; extracted: boolean; trueEnding?: boolean; score: number; at: number; cause: string }
 
 const LOG_KEY = 'rouged.autopilot.log.v1';
 const NAMES: Partial<Record<EnemyType, string>> = { warden: 'WARDEN', echo: 'ECHO' };
@@ -115,7 +116,8 @@ export class Autopilot implements AutopilotHook {
   private shopLogged = false;
   private forceDirect = false;
   private doorFixKey = '';
-  extractAt = Infinity;
+  /** what the run is for, for the spectator overlay */
+  plan = 'FULL DESCENT';
   private doorBanned = new Set<number>();
   private oobT = 0;
   // movement
@@ -426,13 +428,11 @@ export class Autopilot implements AutopilotHook {
     this.danger.onEvent = (ev) => this.onSimEvent(ev);
     this.progressT = run.time; this.progressSig = '';
     this.prevView.clear();
-    // how deep this run means to go before walking out (it still extracts early when hurt);
-    // one run in six never extracts — the Endless showcase
-    const plan = [15, 20, 20, 25, 25, 30, 35, 40, 40, Infinity, Infinity];
-    this.extractAt = plan[Math.floor(Math.random() * plan.length)];
+    // every run is the whole game: every Warden, THE HANDLER at 35, the true ending. It never extracts.
+    this.plan = 'FULL DESCENT';
     const orig = game.cb.onEnd.bind(game.cb);
     game.cb.onEnd = (s, meId, extras) => { this.recordRun(s); orig(s, meId, extras); };
-    console.log(`[autopilot] run ${this.app.meta.runCount + 1} start · plans to extract at ${this.extractAt} · level ${levelFromXp(this.app.meta.xp).level} · seed ${run.seedStr}`);
+    console.log(`[autopilot] run ${this.app.meta.runCount + 1} start · full descent to THE HANDLER · level ${levelFromXp(this.app.meta.xp).level} · seed ${run.seedStr}`);
   }
 
   private onNewRoom(run: Run) {
@@ -459,7 +459,8 @@ export class Autopilot implements AutopilotHook {
     this.sessionRuns++;
     const entry: RunLog = {
       n: this.app.meta.runCount + 1, depth: s.depth, rooms: s.rooms, kills: s.kills, bosses: s.bosses, time: s.timeSec,
-      extracted: s.extracted, score: s.score, at: Date.now(), cause: s.extracted ? 'EXTRACTED' : this.lastRoomName,
+      extracted: s.extracted && !s.trueEnding, trueEnding: s.trueEnding, score: s.score, at: Date.now(),
+      cause: s.trueEnding && s.extracted ? 'IT LET YOU GO' : s.extracted ? 'EXTRACTED' : this.lastRoomName,
     };
     this.log.push(entry);
     saveRunLog(this.log);
@@ -556,15 +557,25 @@ export class Autopilot implements AutopilotHook {
       return { goal: run.room.kind === 'happy' ? null : { x: 0, z: 0 }, look: null, use: false, sprint: false, bhop: false };
     }
     let door = open.find((d) => d.slot === this.doorSlot) ?? null;
+    // THE HANDLER is down and the descent is complete: the door out is the game's ending ("IT LET YOU GO"),
+    // not an early extraction. Take it, so every /test run is one whole game and then a fresh one.
+    const ending = run.trueEnding ? open.find((d) => d.kind === 'extract') : undefined;
+    if (ending && door !== ending) {
+      door = ending; this.doorSlot = ending.slot; this.plan = 'THE WAY OUT';
+      console.log('[autopilot] THE HANDLER is down: taking the way out');
+    }
     if (!door) {
       const snapDoors = game.latest?.doors ?? [];
       const depth = run.room.index + 1;
-      const allowed = open.filter((d) => !this.doorBanned.has(d.slot));
-      const pool = allowed.length ? allowed : open;
+      // never an early extraction, even when every other door is banned as unreachable
+      const deeper = open.filter((d) => d.kind !== 'extract');
+      const allowed = deeper.filter((d) => !this.doorBanned.has(d.slot));
+      const pool = allowed.length ? allowed : deeper;
+      if (!pool.length) { this.status = 'WAITING FOR THE DOORS'; return { goal: { x: 0, z: 0 }, look: null, use: false, sprint: false, bhop: false }; }
       let best = pool[0], bs = -Infinity;
       for (const d of pool) {
         const sd = snapDoors.find((x) => x.slot === d.slot);
-        const sc = scoreDoor({ slot: d.slot, kind: d.kind, nextKind: sd?.nextKind ?? d.nextKind, mutator: d.mutator }, { hpFrac, scrap: me.scrap, depth, level, armor: me.armor, rng: Math.random(), extractAt: this.extractAt });
+        const sc = scoreDoor({ slot: d.slot, kind: d.kind, nextKind: sd?.nextKind ?? d.nextKind, mutator: d.mutator }, { hpFrac, scrap: me.scrap, depth, level, armor: me.armor, rng: Math.random() });
         if (sc > bs) { bs = sc; best = d; }
       }
       door = best; this.doorSlot = best.slot;
@@ -572,7 +583,7 @@ export class Autopilot implements AutopilotHook {
       console.log(`[autopilot] door → ${best.kind} (${sd?.nextKind ?? best.nextKind}) hp ${Math.round(hpFrac * 100)}%`);
     }
     const sd = game.latest?.doors.find((x) => x.slot === door!.slot);
-    const label = door.kind === 'extract' ? 'EXTRACTING' : `EXITING → ${door.kind.toUpperCase()} DOOR${sd && sd.nextKind !== 'combat' ? ' (' + sd.nextKind.toUpperCase() + ')' : ''}`;
+    const label = door.kind === 'extract' ? 'THE WAY OUT · IT LET YOU GO' : `EXITING → ${door.kind.toUpperCase()} DOOR${sd && sd.nextKind !== 'combat' ? ' (' + sd.nextKind.toUpperCase() + ')' : ''}`;
     this.status = label;
     // the doorway cells are open in our nav grid: path straight through to a point outside
     const out = { x: door.x - door.nx * 2.6, z: door.z - door.nz * 2.6 };

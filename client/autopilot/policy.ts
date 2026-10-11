@@ -74,17 +74,13 @@ export function chooseBuy(items: ShopItem[], scrap: number, hp: number, maxHp: n
 export interface DoorOption { slot: number; kind: DoorKind; nextKind: RoomKind; mutator?: Mutator }
 
 /** Score every open door for the current situation; higher is better. */
-export function scoreDoor(d: DoorOption, ctx: { hpFrac: number; scrap: number; depth: number; level: number; armor: number; rng: number; extractAt: number }): number {
+export function scoreDoor(d: DoorOption, ctx: { hpFrac: number; scrap: number; depth: number; level: number; armor: number; rng: number }): number {
   const { hpFrac, scrap, depth } = ctx;
   let s = 0;
   switch (d.kind) {
-    case 'extract': {
-      // walk out when the run is spent; otherwise keep descending for the show
-      // (and the attract mode banks a run now and then: each run picks how deep it means to go)
-      const need = depth >= 30 ? 0.85 : depth >= 25 ? 0.72 : depth >= 20 ? 0.55 : 0.4;
-      s = hpFrac < need || depth >= ctx.extractAt ? 50 : -20;
-      break;
-    }
+    // the attract mode plays the whole game: it never walks out early, however hurt it is
+    // (after THE HANDLER the autopilot takes the ending's exit itself; scoring never picks it)
+    case 'extract': return -1000;
     case 'shop': s = scrap >= 140 ? 14 : scrap >= 60 ? (hpFrac < 0.7 ? 16 : 7) : scrap >= 30 && hpFrac < 0.5 ? 9 : -4; break;
     case 'sanctuary': s = hpFrac < 0.45 ? 22 : hpFrac < 0.7 ? 12 : ctx.armor < 40 ? 3 : 1; break;
     case 'memory': s = hpFrac > 0.6 ? 9 : hpFrac < 0.4 ? 8 : 5; break; // three rare pedestals + a heal (maybe an ambush)

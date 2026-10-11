@@ -115,7 +115,7 @@ export function mountOverlay(ap: Autopilot, app: AppLike, opts: { level: () => n
       ['RUN', String(m.runCount + (app.mode === 'run' ? 1 : 0))],
       ['DEPTH', app.mode === 'run' ? String(depth) : '—'],
       ['HP', me ? `${Math.max(0, Math.round(me.hp))}/${me.mods.maxHp}${me.armor > 0 ? ' +' + Math.round(me.armor) : ''}` : '—'],
-      ['PLAN', app.mode === 'run' ? (isFinite(ap.extractAt) ? 'EXTRACT @ ' + ap.extractAt : 'THE ENDLESS') : '—'],
+      ['PLAN', app.mode === 'run' ? ap.plan : '—'],
       ['BEST', String(Math.max(m.deepest, depth)), 'gold'],
       ['AVG (10)', avg ? avg.toFixed(1) : '—'],
       ['KILLS', kills.toLocaleString()],
@@ -124,7 +124,7 @@ export function mountOverlay(ap: Autopilot, app: AppLike, opts: { level: () => n
       ['UPTIME', fmtTime((performance.now() - ap.bootAt) / 1000)],
     ].map(([k, v, c]) => `<div class="k">${k}</div><div class="v ${c ?? ''}">${esc(v)}</div>`).join('');
     if (kv !== lastKv) { kvEl.innerHTML = kv; lastKv = kv; }
-    const runs = log.slice(-5).reverse().map((r) => `#${r.n} <b>DEPTH ${r.depth}</b> · ${r.kills}K${r.extracted ? ' <span class="x">EXTRACTED</span>' : ''}`).join('<br/>');
+    const runs = log.slice(-5).reverse().map((r) => `#${r.n} <b>DEPTH ${r.depth}</b> · ${r.kills}K${r.trueEnding ? ' <span class="x">IT LET YOU GO</span>' : r.extracted ? ' <span class="x">EXTRACTED</span>' : ''}`).join('<br/>');
     if (runs !== lastRuns) { runsEl.innerHTML = runs; lastRuns = runs; }
   };
   setInterval(paint, 200);
