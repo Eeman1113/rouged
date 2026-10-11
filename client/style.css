@@ -27,7 +27,8 @@ canvas#gl, canvas#hud2d { position: absolute; inset: 0; width: 100%; height: 100
 .hidden { display: none !important; }
 
 /* ─────────────── HUD ─────────────── */
-/* --hb: shared bottom baseline. The dash pips (bottom left) and the vitals bar block (bottom right) both sit on it. */
+/* --hb: shared bottom baseline. The vitals bar block (bottom left) and the dash pips (bottom right) both sit on it.
+   --vit (set by client/hud/vitals.ts): height of the vitals art above that baseline, so the blocks stacked over it follow its size. */
 #hud { position: absolute; inset: 0; pointer-events: none; text-shadow: 2px 2px 0 #000, -1px -1px 0 #000; --hb: 30px; }
 #hud.off { display: none; }
 #hud.hub > *:not(#h-prompt):not(#h-handler):not(#h-announce):not(#h-pops) { display: none; }
@@ -112,34 +113,39 @@ canvas#gl, canvas#hud2d { position: absolute; inset: 0; width: 100%; height: 100
 #h-pedestal .tw { font-family: var(--vt); font-size: 18px; color: var(--epic); margin-top: 4px; }
 #h-pedestal .k { font-size: 8px; color: #999; margin-top: 10px; }
 
-#h-chat { position: absolute; left: 14px; bottom: 170px; font-family: var(--vt); font-size: 18px; color: #bbb; display: flex; flex-direction: column; gap: 2px; }
+#h-chat { position: absolute; left: 18px; bottom: calc(var(--hb) + var(--vit, 90px) + 34px); font-family: var(--vt); font-size: 18px; color: #bbb; display: flex; flex-direction: column; gap: 2px; }
 
 .hud-bottom { position: absolute; left: 0; right: 0; bottom: 0; height: 118px; padding-bottom: env(safe-area-inset-bottom); }
-.hb-left { position: absolute; left: 18px; bottom: var(--hb); text-align: left; font-family: var(--px); }
+/* ammo / weapon slots / dash: right aligned on the 18px gutter, dash pips on --hb */
+.hb-right { position: absolute; right: 18px; bottom: var(--hb); text-align: right; font-family: var(--px); }
 /* small 8px pixel labels: a crisp 1px outline instead of the HUD's 2px drop shadow, which smears them over bright floors */
 .stat .lbl, #h-xp .lvl, .weapons .w { text-shadow: 1px 0 #000, -1px 0 #000, 0 1px #000, 0 -1px #000, 1px 1px #000; }
 .stat .lbl { font-size: 8px; color: #b3a995; letter-spacing: 2px; margin-bottom: 4px; }
+.hb-right .lbl { margin-right: -2px; } /* trailing letter-spacing: the last glyph lands on the gutter like the value under it */
 .stat .v { font-size: 30px; color: var(--bone); }
-/* vitals: canvas widget (client/hud/vitals.ts). --vm is its built-in side margin (so the bar's top-right corner lands on the
-   18px gutter), --vb the art rows under the block (so the block's bottom edge lands on --hb) */
-.hb-right { position: absolute; inset: 0; }
-.vitals { position: absolute; right: calc(18px - var(--vm, 12px)); bottom: calc(var(--hb) - var(--vb, 9px)); transform-origin: 70% 60%; will-change: transform; }
+/* vitals: canvas widget (client/hud/vitals.ts). --vm is its built-in side margin (so the number box's bottom-left corner, the
+   foot of the "/" lean, lands on the 18px gutter), --vb the art rows under the block (so the block's bottom edge lands on --hb).
+   Scale thumps grow out of the number box, away from the corner. */
+.hb-left { position: absolute; inset: 0; }
+.vitals { position: absolute; left: calc(18px - var(--vm, 12px)); bottom: calc(var(--hb) - var(--vb, 9px)); transform-origin: 20% 65%; will-change: transform; }
 .vitals canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
 .ammo .v { font-size: 26px; color: var(--amber); }
-.weapons { display: flex; gap: 6px; justify-content: flex-start; margin-top: 8px; }
+.weapons { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
 .weapons .w { font-size: 8px; padding: 4px 6px; border: 2px solid #333; color: #666; background: rgba(0,0,0,.5); }
 .weapons .w.on { border-color: var(--amber); color: var(--amber); }
 .weapons .w.lock { opacity: .25; }
-.dash { display: flex; gap: 4px; justify-content: flex-start; margin-top: 8px; }
+/* charges stack out from the screen edge (first pip on the gutter) and refill toward it, mirroring the health bar on the left */
+.dash { display: flex; flex-direction: row-reverse; gap: 4px; justify-content: flex-start; margin-top: 8px; }
 .dash i { width: 18px; height: 6px; background: #223; border: 1px solid #000; }
 .dash i.full { background: #7ad7ff; box-shadow: 0 0 6px #4cf; }
-.dash i.part { background: linear-gradient(90deg, #7ad7ff var(--p), #223 var(--p)); }
+.dash i.part { background: linear-gradient(270deg, #7ad7ff var(--p), #223 var(--p)); }
 #h-xp { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: rgba(30,20,0,.7); }
 #h-xp .fill { height: 100%; width: 0; background: linear-gradient(90deg, #a86a00, #ffd040); transition: width .3s; box-shadow: 0 0 8px #fa0; }
 #h-xp.pulse .fill { animation: xpp .3s; }
-/* level tag reads as the label of the XP strip it sits on: left end, on the gutter, clear of the vitals block */
-#h-xp .lvl { position: absolute; left: 18px; bottom: 11px; font-family: var(--px); font-size: 8px; color: var(--legend); }
-#h-powerups { position: absolute; left: 18px; bottom: calc(var(--hb) + 96px); display: flex; gap: 3px; flex-wrap: wrap; max-width: 40vw; }
+/* level tag reads as the label of the XP strip it sits on: right end, on the gutter under the dash pips, clear of the vitals block */
+#h-xp .lvl { position: absolute; right: 18px; bottom: 11px; font-family: var(--px); font-size: 8px; color: var(--legend); }
+/* powerup icons ride above the vitals label row */
+#h-powerups { position: absolute; left: 18px; bottom: calc(var(--hb) + var(--vit, 90px) + 8px); display: flex; gap: 3px; flex-wrap: wrap; max-width: 40vw; }
 #h-powerups i { width: 10px; height: 10px; border: 1px solid #000; display: block; }
 
 .pop { position: absolute; left: 0; top: 0; font-family: var(--px); pointer-events: none; will-change: transform, opacity; white-space: nowrap; text-shadow: 2px 2px 0 #000; }
@@ -233,17 +239,23 @@ canvas#gl, canvas#hud2d { position: absolute; inset: 0; width: 100%; height: 100
   .stat .v { font-size: 22px; }
   .ammo .v { font-size: 18px; }
   #hud { --hb: 26px; }
-  #h-powerups { bottom: calc(var(--hb) + 84px); }
   #h-handler { bottom: max(120px, calc(17.5vh + 12px)); }
   #h-killfeed { font-size: 7px; }
 }
-/* touch: the right side belongs to the buttons, so vitals sit right of the stick and the weapon block above it */
-body.touch .vitals { right: auto; left: calc(186px - var(--vm, 12px)); bottom: calc(16px - var(--vb, 9px)); transform-origin: 30% 60%; }
-body.touch .hb-left { bottom: 190px; }
-body.touch #h-powerups { bottom: 286px; }
+/* touch: the stick and the button cluster own the bottom corners. Vitals sit right of the stick on the bottom edge (stopping
+   before the face); ammo / slots / dash sit in the right column between FIRE and WPN, next to the weapon controls and clear of
+   the subtitles (which end 150px from the right edge) */
+body.touch .vitals { left: calc(186px - var(--vm, 12px)); bottom: calc(16px - var(--vb, 9px)); }
+/* narrow phones: no room beside the face, so the vitals sit just above its top edge (the face is ~17.5% of the height tall) */
+body.touch .vitals.lift { bottom: calc(17.5vh + 10px - var(--vb, 9px)); }
+body.touch .hb-right { right: 30px; bottom: 214px; }
+/* short landscape phones (360px tall): drop the weapon name so the block stays under the WPN button (the lit slot still says it) */
+@media (max-height: 379px) { body.touch .hb-right .lbl { display: none; } }
+body.touch #h-powerups { bottom: 190px; }
+body.touch #h-chat { bottom: 214px; }
 body.touch .hud-tl { left: 76px; } /* clear of the pause button */
-/* subtitles: above the button cluster and between the side blocks, never under FIRE / USE */
-body.touch #h-handler { bottom: 214px; width: min(820px, calc(100vw - 300px)); }
+/* subtitles: above the button cluster, never under FIRE / USE, and 170px clear of each edge (the ammo block in the right column) */
+body.touch #h-handler { bottom: 214px; width: min(820px, calc(100vw - 340px)); }
 /* portrait: the touch layout is landscape only (stick and buttons overlap); ask for a rotate instead of a broken HUD */
 @media (orientation: portrait) {
   body.touch .t-stick, body.touch .t-btn:not(.t-pause), body.touch .t-look { display: none; }

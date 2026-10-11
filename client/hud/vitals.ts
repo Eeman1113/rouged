@@ -1,4 +1,9 @@
-// VITALS: the bottom-right integrity readout (HP number + segmented health bar + plating + heart trace).
+// VITALS: the bottom-left integrity readout (HP number + segmented health bar + plating + heart trace).
+//
+// Anchored on the left edge, ULTRAKILL style: the number box sits in the corner and the bar fills left to right away from
+// it, so damage eats back toward the corner and the empty end points at the face. The "/" lean is kept (not mirrored):
+// its foot plants the box's bottom-left corner on the gutter and the top leans into the play area. Label and +N tags read
+// out from the edge over the box, the heart trace sits at the inner end, armor shards fly inward over the bar.
 //
 // Drawn on its own small canvas at devicePixelRatio, on an integer "art pixel" grid, so it stays crisp at any
 // resolution and matches the game's chunky pixel look. (The shared hud2d canvas runs at the 3D internal
@@ -117,15 +122,21 @@ export class Vitals {
   }
 
   /** Pick the art-pixel size from the viewport: ~3 css px at 1080p, never under ~1.4 on phones, always whole device px.
-   *  The width limit is the real free space between the face (bottom centre, ~0.17 x height wide) and the gutter. */
+   *  The width limit is the real free space between the left gutter (or the touch stick) and the face (bottom centre,
+   *  ~0.17 x height wide): the bar grows from the edge toward the face and stops short of it. */
   resize() {
     const touch = this.touch = document.body.classList.contains('touch');
     const dpr = this.dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
     const W = innerWidth, H = innerHeight;
     const faceHalf = 0.09 * H + 12;
     const portrait = touch && H > W;
-    // desktop: gutter (18) to the face; touch landscape: stick (186) to the face; touch portrait: full width above the stick
-    const room = portrait ? W - 36 : touch ? W / 2 - faceHalf - 186 : W / 2 - faceHalf - 18;
+    // desktop: gutter (18) to the face; touch landscape: stick (186) to the face; touch portrait: full width above the stick.
+    // Narrow phones (iPhone SE class) leave under 1 css px per art px beside the face: there the widget lifts above the
+    // face's top edge (CSS .lift) and may run on toward the SLIDE button (274 px from the right edge) instead.
+    let room = portrait ? W - 36 : touch ? W / 2 - faceHalf - 186 : W / 2 - faceHalf - 18;
+    const lift = touch && !portrait && room < ART_W - 2 * M;
+    if (lift) room = W - 186 - 274 - 12;
+    this.el.classList.toggle('lift', lift);
     const limit = Math.max(1 / dpr, room / (ART_W - 2 * M));
     const ucss = Math.min(5, portrait ? 2.2 : 5, limit, Math.max(H < 600 ? 1.6 : 1.4, Math.min(H, portrait ? W * 1.6 : H) / 360));
     let u = Math.max(1, Math.round(ucss * dpr));
@@ -138,6 +149,8 @@ export class Vitals {
     this.el.style.setProperty('--vm', (M * u / dpr) + 'px');
     // art rows under the block (the shard pad): lets CSS sit the block's bottom edge on the shared HUD baseline
     this.el.style.setProperty('--vb', ((ART_H - (M + HEAD + 1 + BLOCK_H)) * u / dpr) + 'px');
+    // visible height above the baseline (label row + block): the powerup icons and chat stack on top of it
+    document.documentElement.style.setProperty('--vit', ((HEAD + 1 + BLOCK_H) * u / dpr) + 'px');
   }
 
   /** Jump straight to the current state (new run, HUD shown again). */

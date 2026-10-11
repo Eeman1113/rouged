@@ -20,7 +20,7 @@ export class Hud {
   announcer: Announcer;
   pops: DamageNumbers;
   face = new FaceHud();
-  /** bottom-right integrity readout: HP number + segmented bar + plating + heart trace */
+  /** bottom-left integrity readout: HP number + segmented bar + plating + heart trace */
   vitals = new Vitals();
   els: Record<string, HTMLElement> = {};
   // weapon viewmodel state
@@ -68,12 +68,12 @@ export class Hud {
       <div id="h-chat"></div>
       <div id="h-powerups"></div>
       <div class="hud-bottom">
-        <div class="hb-left">
+        <div class="hb-left"></div>
+        <div class="hb-right">
           <div class="stat ammo" id="h-ammo"><div class="lbl">PULSE</div><div class="v">100%</div></div>
           <div class="weapons" id="h-weapons"></div>
           <div class="dash" id="h-dash"></div>
         </div>
-        <div class="hb-right"></div>
       </div>
       <div id="h-xp"><div class="fill"></div><div class="lvl">LV 1</div></div>
       <div id="h-pops"></div>`;
@@ -81,7 +81,7 @@ export class Hud {
     this.killfeed = new KillFeed($(root, '#h-killfeed'));
     this.announcer = new Announcer($(root, '#h-announce'));
     this.pops = new DamageNumbers($(root, '#h-pops'));
-    $(root, '.hb-right').appendChild(this.vitals.el);
+    $(root, '.hb-left').appendChild(this.vitals.el);
     this.ctx = canvas.getContext('2d')!;
     this.show(false);
   }
