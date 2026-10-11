@@ -43,6 +43,7 @@ class App {
   seedInput = '';
   last = performance.now();
   private terminalOpen = false;
+  private touchEl: HTMLElement | null = null;
   autopilot: AutopilotHook | null = null;
 
   constructor() {
@@ -70,6 +71,9 @@ class App {
     try {
       const gameplay = (this.mode === 'run' || this.mode === 'hub') && !this.paused && !this.terminalOpen;
       this.world.input.pollPad(dt, gameplay);
+      // touch stick + buttons only during play: over menus they hide items and eat taps
+      const tr = this.touchEl ??= document.getElementById('touch');
+      if (tr) { const disp = gameplay ? '' : 'none'; if (tr.style.display !== disp) tr.style.display = disp; }
       if (!gameplay) this.menuNav();
       if (this.mode === 'run' && this.game) {
         this.game.paused = this.paused;
@@ -678,7 +682,7 @@ class App {
             ).join('')}
             <button type="button" class="btn small${s.sensPreset === 'custom' ? ' primary' : ''}" data-preset="custom">CUSTOM</button>
           </div></label>
-        <label class="field">SENSITIVITY <span id="v-sens">${s.sensitivity.toFixed(3)} · VALO ${rougedToValorant(s.sensitivity).toFixed(3)}</span><input id="s-sens" type="range" min="0.05" max="3" step="any" value="${s.sensitivity}"/></label>
+        <label class="field">SENSITIVITY <span id="v-sens">${s.sensitivity.toFixed(3)} · VALO ${rougedToValorant(s.sensitivity).toFixed(3)}</span><input id="s-sens" type="range" min="${Math.min(0.05, s.sensitivity)}" max="${Math.max(3, s.sensitivity)}" step="any" value="${s.sensitivity}"/></label>
         <label class="field">FOV (VERTICAL) <span id="v-fov">${s.fov.toFixed(1)}</span><input id="s-fov" type="range" min="60" max="115" step="any" value="${s.fov}"/></label>
         <label class="field">SCOPED SENS MULTIPLIER <span id="v-ads">${(s.adsMult ?? 1).toFixed(2)}</span><input id="s-ads" type="range" min="0.2" max="2" step="0.01" value="${s.adsMult ?? 1}"/></label>
         <label class="field">MOUSE DPI (FOR CM/360) <span id="v-cm">${cmPer360(s.sensitivity, s.dpi ?? 800).toFixed(1)} CM/360</span><input id="s-dpi" type="number" min="100" max="32000" step="50" value="${s.dpi ?? 800}"/></label>
@@ -688,7 +692,7 @@ class App {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:end">
         <label class="field">VALORANT SENSITIVITY<input id="v-val" type="number" min="0.01" max="10" step="0.001" placeholder="e.g. 0.35" value="${rougedToValorant(s.sensitivity).toFixed(3)}"/></label>
         <label class="field">SCOPED MULTIPLIER<input id="v-valads" type="number" min="0.01" max="3" step="0.01" value="${(s.adsMult ?? 1).toFixed(2)}"/></label>
-        <label class="field" style="flex-direction:row;align-items:center;gap:8px"><input id="v-valfov" type="checkbox" checked style="width:18px;height:18px"/>MATCH VALORANT FOV (103°)</label>
+        <label class="field" style="flex-direction:row;align-items:center;gap:8px;line-height:1.6"><input id="v-valfov" type="checkbox" checked style="width:18px;height:18px"/>MATCH VALORANT FOV (103°)</label>
       </div>
       <div class="row" style="margin-top:10px"><button class="btn" id="b-valo">IMPORT</button></div>
       <p id="v-valmsg" class="hint" style="text-align:left;margin-top:6px"></p>
@@ -720,6 +724,8 @@ class App {
     // chip to 'CUSTOM' / 'VALORANT IMPORT' respectively — tracked via
     // `currentPreset` while the dialog is open, committed on SAVE.
     let currentPreset: SensPreset = s.sensPreset;
+    // the Valorant field mirrors the live sens; a stale "Imported" note goes once the sens moves on
+    const syncValo = (sens: number) => { q<HTMLInputElement>('v-val').value = rougedToValorant(sens).toFixed(3); q('v-valmsg').textContent = ''; };
     const curDpi = () => Number(q<HTMLInputElement>('s-dpi').value) || 800;
     // A preset is a cm/360 target: solve it for THIS mouse's DPI.
     const applyPreset = (preset: NamedPreset) => {
@@ -729,6 +735,7 @@ class App {
       sensEl.value = String(sens);
       q('v-sens').textContent = `${sens.toFixed(3)} · VALO ${rougedToValorant(sens).toFixed(3)}`;
       refreshCm();
+      syncValo(sens);
     };
     const paintPreset = () => {
       q('v-preset').textContent = PRESET_LABELS[currentPreset];
@@ -750,6 +757,7 @@ class App {
       const v = Number((e.target as HTMLInputElement).value);
       q('v-sens').textContent = `${v.toFixed(3)} · VALO ${rougedToValorant(v).toFixed(3)}`;
       refreshCm();
+      syncValo(v);
       // Human dragged the slider — mark Custom unless the value happens to
       // land exactly on a preset (classifySens handles that).
       currentPreset = classifySens(v, curDpi());
