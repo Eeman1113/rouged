@@ -27,7 +27,7 @@ const CSS = `
 #ap-hud button.on { border-color: var(--term); color: #000; background: var(--term); }
 #ap-hud button.warn { border-color: var(--blood); color: #ff8a8a; }
 #ap-hud .hint { margin-top: 6px; font-size: 7px; color: #77736a; }
-#ap-toast { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 41; font-family: var(--px); font-size: 10px; letter-spacing: 2px; color: #000;
+#ap-toast { position: absolute; left: 50%; top: 72px; transform: translateX(-50%); z-index: 41; font-family: var(--px); font-size: 10px; letter-spacing: 2px; color: #000;
   background: var(--amber); padding: 7px 12px 6px; pointer-events: none; animation: apblink 1.4s steps(2) infinite; box-shadow: 0 0 18px rgba(255,180,58,.5); }
 @media (max-width: 700px) { #ap-hud { width: 210px; top: 70px; font-size: 8px; } #ap-hud .status { font-size: 17px; } }
 `;

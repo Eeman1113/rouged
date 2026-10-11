@@ -1216,6 +1216,8 @@ function poolFor(ctx: HandlerContext, phase: Phase): string[] {
 function fill(line: string, vars: { name: string; run: number; biome?: string; depth?: number }): string {
   return line
     .replace(/\{name\}/g, vars.name || 'candidate')
+    // default callsign is CANDIDATE: avoid "Welcome, candidate CANDIDATE"
+    .replace(/\bcandidate (candidate)\b/gi, '$1')
     .replace(/\{run\}/g, String(vars.run))
     .replace(/\{biome\}/g, vars.biome || 'the sector')
     .replace(/\{depth\}/g, vars.depth !== undefined ? String(Math.floor(vars.depth)) : 'unknown');
