@@ -364,6 +364,7 @@ export class Game {
           w.lookLockT = C.GLORY_SLOWMO;
           w.lookTarget = new THREE.Vector3(e.x, e.y, e.z);
           w.hud.glory();
+          w.hud.vitals.glory();
           if (this.mods.reaper) w.player.s.dashCharges = this.mods.maxDash;
           sfx.gloryKill();
           this.rumble(1, 1, 380);
@@ -385,6 +386,7 @@ export class Game {
           const rx = Math.cos(lp.yaw), rz = -Math.sin(lp.yaw);
           const side = dx * rx + dz * rz;
           w.hud.face.hurt(Math.abs(side) > 0.5 ? side < 0 : null);
+          w.hud.vitals.hit(e.dmg, !!e.armorBroke);
           w.hurtVignette(Math.min(0.9, 0.25 + e.dmg / 40));
           w.shake(3 + e.dmg / 6);
           sfx.playerHurt(e.dmg);
@@ -399,6 +401,7 @@ export class Game {
         if (mine(e.id)) {
           this.alive = false;
           w.hud.face.dead = true;
+          w.hud.vitals.die();
           sfx.playerDeath();
           this.rumble(1, 0.3, 700);
           music.death();
@@ -425,6 +428,7 @@ export class Game {
           sfx.streak(e.level);
           this.rumble(0.2 * e.level, 0.25 * e.level, 120 + e.level * 60);
           w.hud.face.grin(1 + e.level * 0.4);
+          w.hud.vitals.surge(e.level);
           if (e.level >= 2) w.tint(e.level >= 4 ? '#ff0000' : e.level === 3 ? '#ff6a00' : '#ffaa00', 0.3 + e.level * 0.1);
           if (e.level >= 3) w.flash(0.25);
           if (e.level >= 3) w.shake(5);
@@ -680,6 +684,7 @@ export class Game {
         if (mine(e.id)) {
           w.flash(1); w.tint('#ff6600', 0.9); w.shake(16); w.slowmo(0.8, 0.3);
           w.hud.announcer.show('PHOENIX', 'gold big', 'NOT YET', true);
+          w.hud.vitals.revive();
           w.cast.say('announcer', 'PHOENIX', 3);
           this.rumble(1, 1, 700);
           w.hud.face.dead = false;
@@ -1475,7 +1480,9 @@ export class Game {
 
   private updateHud(s: Snapshot) {
     const h = this.world.hud;
-    h.setHp(this.hp, this.maxHp, this.armor);
+    h.setHp(this.hp, this.maxHp, this.armor, this.alive);
+    h.vitals.setEnergy(s.combo, this.streakT > 0 ? this.streakLevel : 0);
+    h.vitals.motion = this.world.shakeMult;
     h.setScore(this.score);
     const meS = s.players.find((p) => p.id === this.me);
     if (meS) { this.scrap = meS.scrap; h.setScrap(meS.scrap); }
@@ -1493,7 +1500,7 @@ export class Game {
     this.world.lowHpPulse = this.alive && frac < 0.3 ? 1 : 0;
     if (this.alive && frac < 0.3) {
       this.heartbeatT -= 1 / 60;
-      if (this.heartbeatT <= 0) { this.heartbeatT = 0.55 + frac * 2; sfx.lowHpHeartbeat(); }
+      if (this.heartbeatT <= 0) { this.heartbeatT = 0.55 + frac * 2; sfx.lowHpHeartbeat(); h.vitals.beat(); }
       if (!this.lowHpWarned) { this.lowHpWarned = true; this.world.say('lowHp', this.runCount, 3, 12); }
     } else if (frac > 0.5) this.lowHpWarned = false;
     this.world.hud.face.age = Math.min(1, this.runCount / 40);

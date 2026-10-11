@@ -9,6 +9,7 @@ import { KillFeed, esc } from './killfeed';
 import { Announcer } from './announcer';
 import { DamageNumbers } from './damageNumbers';
 import { FaceHud } from './face';
+import { Vitals } from './vitals';
 
 const $ = <T extends HTMLElement = HTMLElement>(root: HTMLElement, sel: string) => root.querySelector(sel) as T;
 
@@ -19,6 +20,8 @@ export class Hud {
   announcer: Announcer;
   pops: DamageNumbers;
   face = new FaceHud();
+  /** bottom-right integrity readout: HP number + segmented bar + plating + heart trace */
+  vitals = new Vitals();
   els: Record<string, HTMLElement> = {};
   // weapon viewmodel state
   weapon: WeaponId = 'pulse';
@@ -39,7 +42,6 @@ export class Hud {
   hpFrac = 1;
   visible = false;
   private handlerTimer = 0;
-  private lastHp = -1;
   private lastScore = -1;
   private lastCombo = -1;
   private chatT: number[] = [];
@@ -67,26 +69,25 @@ export class Hud {
       <div id="h-powerups"></div>
       <div class="hud-bottom">
         <div class="hb-left">
-          <div class="stat hp" id="h-hp"><div class="lbl">HEALTH</div><div class="v">100</div></div>
-          <div class="stat ar" id="h-ar"><div class="lbl">ARMOR</div><div class="v">0</div></div>
-        </div>
-        <div class="hb-right">
           <div class="stat ammo" id="h-ammo"><div class="lbl">PULSE</div><div class="v">100%</div></div>
           <div class="weapons" id="h-weapons"></div>
           <div class="dash" id="h-dash"></div>
         </div>
+        <div class="hb-right"></div>
       </div>
       <div id="h-xp"><div class="fill"></div><div class="lvl">LV 1</div></div>
       <div id="h-pops"></div>`;
-    for (const id of ['h-scrap', 'h-mut', 'h-room', 'h-seed', 'h-score', 'h-boss', 'h-timer', 'h-wave', 'h-left', 'h-handler', 'h-combo', 'h-prompt', 'h-pedestal', 'h-chat', 'h-powerups', 'h-hp', 'h-ar', 'h-ammo', 'h-weapons', 'h-dash', 'h-xp']) this.els[id] = $(root, '#' + id);
+    for (const id of ['h-scrap', 'h-mut', 'h-room', 'h-seed', 'h-score', 'h-boss', 'h-timer', 'h-wave', 'h-left', 'h-handler', 'h-combo', 'h-prompt', 'h-pedestal', 'h-chat', 'h-powerups', 'h-ammo', 'h-weapons', 'h-dash', 'h-xp']) this.els[id] = $(root, '#' + id);
     this.killfeed = new KillFeed($(root, '#h-killfeed'));
     this.announcer = new Announcer($(root, '#h-announce'));
     this.pops = new DamageNumbers($(root, '#h-pops'));
+    $(root, '.hb-right').appendChild(this.vitals.el);
     this.ctx = canvas.getContext('2d')!;
     this.show(false);
   }
 
   show(on: boolean) {
+    if (on && !this.visible) this.vitals.snap();
     this.visible = on;
     if (on) this.root.classList.remove('hub');
     this.root.classList.toggle('off', !on);
@@ -99,6 +100,7 @@ export class Hud {
   }
 
   resize(w: number, h: number) {
+    this.vitals.resize();
     this.canvasW = w; this.canvasH = h;
     this.canvas.width = w; this.canvas.height = h;
     this.ctx.imageSmoothingEnabled = false;
@@ -117,18 +119,9 @@ export class Hud {
     this.lastScore = n;
   }
 
-  setHp(hp: number, max: number, armor: number) {
+  setHp(hp: number, max: number, armor: number, alive = hp > 0) {
     this.hpFrac = Math.max(0, hp / Math.max(1, max));
-    const el = this.els['h-hp'];
-    const v = el.querySelector('.v') as HTMLElement;
-    if (hp !== this.lastHp) {
-      v.textContent = String(Math.max(0, Math.ceil(hp)));
-      v.classList.remove('flash'); void v.offsetWidth; v.classList.add('flash');
-      this.lastHp = hp;
-    }
-    el.classList.toggle('low', this.hpFrac < 0.3);
-    (this.els['h-ar'].querySelector('.v') as HTMLElement).textContent = String(Math.ceil(armor));
-    this.els['h-ar'].style.opacity = armor > 0 ? '1' : '0.35';
+    this.vitals.setState(hp, max, armor, alive);
   }
 
   setAmmo(weapon: WeaponId, frac: number) {
@@ -379,6 +372,8 @@ export class Hud {
       dashing: !!mo.dashing, airborne: !!mo.airborne, lookDX: mo.lookDX ?? 0, lookDY: mo.lookDY ?? 0,
       sprinting: !!mo.sprinting, crouching: !!mo.crouching, ads: this.ads,
     });
+    this.vitals.dim = this.weapon === 'lance' ? Math.min(1, this.ads * 1.5) : 0;
+    this.vitals.draw(mo.lookDX ?? 0, mo.lookDY ?? 0);
     mo.lookDX = 0; mo.lookDY = 0;
 
     // ── crosshair / sights
