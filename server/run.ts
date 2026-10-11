@@ -855,6 +855,7 @@ export class Run {
       powerups: p.powerups.map((x) => x.id), synergies: p.synergies.slice(),
       xp: Math.round(p.xp * this.diff.xp), profile: this.profileOf(p),
       depth: this.room ? this.room.index + 1 : 0, extracted: this.extracted, trueEnding: this.trueEnding && this.sawEveryWarden(p.id), scrap: p.scrap,
+      wardens: [...(this.playerWardens.get(p.id) ?? [])].sort((a, b) => a - b),
     }));
     this.emit({ e: 'runEnd', summary });
     this.flush();

@@ -265,6 +265,8 @@ export interface RunSummary {
   extracted: boolean;
   trueEnding: boolean;
   scrap: number;
+  /** descent Warden biomes (0..6) this player was present for when they fell; optional: older servers omit it */
+  wardens?: number[];
 }
 
 // ───────────────────────────── messages ─────────────────────────────

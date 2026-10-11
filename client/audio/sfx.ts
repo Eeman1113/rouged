@@ -1760,4 +1760,26 @@ export const sfx = {
       return h;
     });
   },
+
+  /** The false awakening: rain on a window, somewhere that isn't here. Soft wash + glass ticks. */
+  morningRain(): LoopHandle {
+    return playLoop(() => {
+      const v = new Voice(undefined, 1, 0.4);
+      const master = v.gain(0);
+      const wash = v.filter('lowpass', 1400, 0.4, v.gain(0.22, master));
+      loopSrc(v, v.noiseLoop(wash, 0.7));
+      const hiss = v.filter('highpass', 5200, 0.5, v.gain(0.05, master));
+      loopSrc(v, v.noiseLoop(hiss, 1));
+      // drops on glass: a narrow band that wanders
+      const drops = v.filter('bandpass', 3000, 4, v.gain(0.06, master));
+      loopSrc(v, v.noiseLoop(drops, 1.3));
+      loopSrc(v, v.osc('sine', 3.7, v.gain(900, drops.frequency)));
+      loopSrc(v, v.osc('sine', 0.13, v.gain(400, wash.frequency)));
+      const h = loopHandle(v, master, 0.3, (x) => master.gain.setTargetAtTime(0.3 * x, v.ctx.currentTime, 0.4), 1.2);
+      master.gain.cancelScheduledValues(v.t);
+      master.gain.setValueAtTime(0, v.t);
+      master.gain.linearRampToValueAtTime(0.3, v.t + 1.5);
+      return h;
+    });
+  },
 };

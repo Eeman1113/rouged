@@ -827,7 +827,7 @@ export const MUTATOR_INFO: Record<MutatorId, { name: string; desc: string; handl
 
 // ---------------------------------------------------------------- endings
 
-type ScriptLine = { speaker: 'handler' | 'terminal' | 'system'; text: string; delay: number };
+export type ScriptLine = { speaker: 'handler' | 'terminal' | 'system'; text: string; delay: number };
 
 /** Choosing EXTRACT after the Core (depth 15). The corridor is white. The morning is the same. */
 export const EXTRACT_SCRIPT: ScriptLine[] = [

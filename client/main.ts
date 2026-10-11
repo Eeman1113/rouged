@@ -2,9 +2,11 @@
 
 import { World } from './world';
 import { Game } from './game';
-import { Hub } from './hub';
+import { Hub, type HubOpts } from './hub';
+import { FalseAwakening, type WakePlan } from './wake';
+import { WAKE_CORRIDOR, eyeTeaseDue, plainLine } from './story/awakening';
 import { LocalTransport, WsTransport, defaultServerUrl, Transport } from './net';
-import { loadMeta, saveMeta, applyRun, metaLevel, metaKey, Meta } from './meta';
+import { loadMeta, saveMeta, applyRun, metaLevel, metaKey, runSigils, Meta } from './meta';
 import { audio } from './audio/engine';
 import { sfx } from './audio/sfx';
 import { music } from './audio/music';
@@ -45,6 +47,10 @@ class App {
   private terminalOpen = false;
   private touchEl: HTMLElement | null = null;
   autopilot: AutopilotHook | null = null;
+  /** the false awakening in progress (an early extraction's morning, then the readout) */
+  wake: FalseAwakening | null = null;
+  /** Warden sigils the last run lit for the first time: door 35 flares them on the next hub visit */
+  private pendingSigils: number[] = [];
 
   constructor() {
     this.world.applySettings(this.meta);
@@ -54,6 +60,10 @@ class App {
     };
     document.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
     document.addEventListener('keydown', () => audio.unlock(), { capture: true });
+    // skipping the morning (only after the first one): space / enter / tap / click
+    const skipWake = () => { if (this.wake?.playing && !this.paused) this.wake.skip(); };
+    window.addEventListener('keydown', (e) => { if (e.code === 'Space' || e.code === 'Enter') skipWake(); });
+    window.addEventListener('pointerdown', skipWake);
     document.getElementById('gl')!.addEventListener('click', () => {
       if ((this.mode === 'run' || this.mode === 'hub') && !this.paused && !this.world.input.locked && !this.autopilot?.active) this.world.input.requestLock();
     });
@@ -69,7 +79,9 @@ class App {
     const dt = Math.min(0.1, (t - this.last) / 1000);
     this.last = t;
     try {
-      const gameplay = (this.mode === 'run' || this.mode === 'hub') && !this.paused && !this.terminalOpen;
+      const waking = !!this.wake?.playing;
+      const gameplay = (this.mode === 'run' || this.mode === 'hub') && !this.paused && !this.terminalOpen && !waking;
+      if (waking && this.world.input.pad.state.pressed.has(BTN.CROSS)) this.wake!.skip();
       this.world.input.pollPad(dt, gameplay);
       // touch stick + buttons only during play: over menus they hide items and eat taps
       const tr = this.touchEl ??= document.getElementById('touch');
@@ -79,7 +91,7 @@ class App {
         this.game.paused = this.paused;
         if (this.autopilot) this.autopilot.runFrame(this.game, dt); else this.game.update(dt);
       } else if (this.mode === 'hub' && this.hub) {
-        this.hub.paused = this.paused || this.terminalOpen;
+        this.hub.paused = this.paused || this.terminalOpen || waking;
         if (this.autopilot) this.autopilot.hubFrame(this.hub, dt); else this.hub.update(dt);
       } else if (this.mode === 'title' || this.mode === 'death' || this.mode === 'lobby' || this.mode === 'reveal') {
         // slow idle camera drift behind menus
@@ -372,18 +384,22 @@ class App {
     }
   }
 
-  enterHub() {
+  enterHub(opts: HubOpts = {}) {
     this.disposeGame();
     this.disposeHub();
     this.clearScreen();
     this.mode = 'hub';
     this.paused = false;
     this.world.fade(true);
+    const freshSigils = this.pendingSigils;
+    this.pendingSigils = [];
     setTimeout(() => {
+      if (this.mode !== 'hub' || this.hub) { this.world.fade(false); return; }
       this.hub = new Hub(this.world, this.meta, {
         onDeploy: () => this.startRun(this.coop),
         onTerminal: (lines) => this.showTerminal(lines, null, true),
-      });
+        onInspect: (lines) => this.showTerminal(lines, null, false),
+      }, false, { ...opts, freshSigils });
       this.world.fade(false);
       this.world.input.requestLock();
     }, 250);
@@ -444,6 +460,7 @@ class App {
   }
 
   disposeHub() {
+    if (this.wake) { this.wake.dispose(); this.wake = null; }
     if (this.hub) { this.hub.dispose(); this.hub = null; }
   }
 
@@ -515,17 +532,88 @@ class App {
     const lvNow = metaLevel(this.meta);
     // The Final Reveal: run 40
     const revealDue = !this.meta.revealSeen && (preRunCount >= 39 || lvNow.level >= 40) && (s.victory || s.rooms >= 10 || lvNow.level >= 40);
+    this.pendingSigils = res.freshSigils;
+    // walking out before THE HANDLER is not an ending: the program wakes you up
+    const wake = s.extracted && !s.trueEnding && !revealDue ? this.planWake(s) : null;
     setTimeout(() => {
       this.world.input.exitLock();
       this.world.voice.cancel();
       this.disposeGame();
       if (revealDue) this.showReveal();
+      else if (wake) this.showWakeCorridor(!wake.first, () => this.showDeath(s, res, extras.fragment, wake));
       else if (s.extracted) this.showExtract(() => this.showDeath(s, res, extras.fragment));
       else this.showDeath(s, res, extras.fragment);
     }, s.victory ? 1500 : 900);
   }
 
-  showDeath(s: RunSummary, res: ReturnType<typeof applyRun>, frag: Fragment | null) {
+  /** Decide this false awakening (and remember it: the next one is skippable, the eye shows once). */
+  private planWake(s: RunSummary): WakePlan {
+    const plan: WakePlan = {
+      depth: s.depth, wardens: runSigils(s).length, runCount: this.meta.runCount,
+      first: this.meta.falseWakes === 0, eye: eyeTeaseDue(s.depth, this.meta.eyeSeen),
+      trueEndingSeen: this.meta.trueEndingSeen,
+      reduced: matchMedia('(prefers-reduced-motion: reduce)').matches || this.meta.settings.shake <= 0.05,
+    };
+    this.meta.falseWakes++;
+    if (plan.eye) this.meta.eyeSeen = true;
+    saveMeta(this.meta);
+    return plan;
+  }
+
+  /** The white corridor of an early extraction: it ends on the lie (the transfer completes). */
+  showWakeCorridor(skippable: boolean, then: () => void) {
+    this.mode = 'reveal';
+    this.world.hud.show(false);
+    const d = this.setScreen(`<div class="reveal-terminal" id="rv" style="color:#e9e2d0;text-shadow:0 0 12px #fff"></div>${skippable ? '<button class="btn small" id="b-skip" style="position:absolute;right:16px;bottom:14px">SKIP [SPACE]</button>' : ''}`, 'black');
+    (d as HTMLElement).style.background = 'radial-gradient(ellipse at center, #fff 0%, #d8d8d0 20%, #000 75%)';
+    const el = d.querySelector('#rv') as HTMLElement;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      for (const tm of timers) clearTimeout(tm);
+      window.removeEventListener('keydown', key);
+      this.world.cast.clear(); this.world.cast.cut();
+      if (this.overlay === d) then();
+    };
+    const key = (e: KeyboardEvent) => { if (skippable && (e.code === 'Space' || e.code === 'Enter')) { e.preventDefault(); finish(); } };
+    window.addEventListener('keydown', key);
+    const sk = d.querySelector('#b-skip') as HTMLElement | null;
+    if (sk) { sk.onclick = finish; if (this.world.input.padActive) sk.focus(); }
+    let t = 0;
+    for (const line of WAKE_CORRIDOR) {
+      t += line.delay * 1000;
+      timers.push(setTimeout(() => {
+        const p = document.createElement('div');
+        p.textContent = (line.speaker === 'terminal' ? '' : line.speaker === 'system' ? '[SYSTEM] ' : '') + line.text;
+        p.style.margin = '6px 0';
+        el.appendChild(p);
+        if (line.speaker === 'handler') this.world.voice.say(line.text, { runCount: this.meta.runCount, priority: 9 });
+        else this.world.cast.say('system', line.text, 2);
+      }, t));
+    }
+    timers.push(setTimeout(finish, t + 2200));
+  }
+
+  /** OPEN YOUR EYES: the hub is built under the morning; the morning tears; you're in the white room. */
+  openEyes(plan: WakePlan) {
+    this.enterHub({ wake: true });
+    // nothing from the run (or the corridor) may linger over the morning
+    this.world.cast.clear(); this.world.cast.cut();
+    this.world.hud.announcer.clear();
+    this.world.hud.els['h-handler']?.classList.remove('on');
+    const wake = new FalseAwakening(this.world, plan, {
+      onCut: () => { this.world.input.requestLock(); },
+      onSample: () => { this.hub?.flareFresh(0.15); },
+      onDone: () => { this.hub?.wakeDone(); if (this.wake === wake) this.wake = null; },
+    });
+    this.wake = wake;
+    // the band holds its breath until the room comes back
+    setTimeout(() => { if (this.wake === wake && wake.playing) music.silence(Math.max(1, wake.cutAt - wake.elapsed)); }, 320);
+  }
+
+  showDeath(s: RunSummary, res: ReturnType<typeof applyRun>, frag: Fragment | null, wake: WakePlan | null = null) {
     this.mode = 'death';
     this.world.hud.show(false);
     const title = s.trueEnding && s.extracted ? 'IT LET YOU GO' : s.extracted ? 'EXTRACTED' : DEATH_TITLES[(this.meta.runCount * 7) % DEATH_TITLES.length];
@@ -537,7 +625,7 @@ class App {
     const line = handlerLine(ctx, preRunCountFor(this.meta), { name: this.meta.name, run: this.meta.runCount });
     const d = this.setScreen(`
       <div class="death-title">${esc(title)}</div>
-      <div class="death-sub">${esc(line ?? 'Subject terminated. Restoring from checkpoint.')}</div>
+      <div class="death-sub">${esc(plainLine(line ?? 'Subject terminated. Restoring from checkpoint.'))}</div>
       ${res.personalBest ? '<div class="pb">★ NEW PERSONAL BEST ★</div>' : ''}
       <div class="death-stats panel"><div class="kv">
         <div class="k">SCORE</div><div class="v gold">${s.score.toLocaleString()}</div>
@@ -555,16 +643,19 @@ class App {
       <div class="death-xp"><div class="lv">+${res.xpGained} XP · LEVEL ${lv.level}${res.newLevel > res.prevLevel ? ' ▲' : ''}</div><div class="bar"><i id="xpfill" style="width:${(prevFrac * 100).toFixed(1)}%"></i></div></div>
       ${unlocks.map((u) => `<div class="unlock">UNLOCKED: ${esc(u.label)}</div>`).join('')}
       ${frag ? `<div class="frag-unlock"><b>FRAGMENT RECOVERED — ${esc(frag.title)}</b>\n${esc(frag.text)}</div>` : ''}
-      <div class="menu" style="margin-top:16px"><button class="btn primary" id="b-again">WAKE UP [SPACE]</button><button class="btn small" id="b-title">TITLE</button></div>`, 'dim');
+      <div class="menu" style="margin-top:16px">${wake
+        ? '<button class="btn primary" id="b-again">OPEN YOUR EYES [SPACE]</button>'
+        : '<button class="btn primary" id="b-again">WAKE UP [SPACE]</button><button class="btn small" id="b-title">TITLE</button>'}</div>`, 'dim');
     setTimeout(() => { const f = d.querySelector('#xpfill') as HTMLElement | null; if (f) f.style.width = (lv.into / lv.need * 100).toFixed(1) + '%'; }, 80);
     if (res.newLevel > res.prevLevel) setTimeout(() => sfx.levelUp(), 600);
     if (res.personalBest) setTimeout(() => sfx.rarityReveal('epic'), 300);
-    const again = () => { window.removeEventListener('keydown', key); this.enterHub(); };
+    const again = () => { window.removeEventListener('keydown', key); if (wake) this.openEyes(wake); else this.enterHub(); };
     const key = (e: KeyboardEvent) => { if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); again(); } };
     setTimeout(() => window.addEventListener('keydown', key), 400);
     (d.querySelector('#b-again') as HTMLElement).onclick = again;
     this.focusFirst();
-    (d.querySelector('#b-title') as HTMLElement).onclick = () => { window.removeEventListener('keydown', key); this.showTitle(); };
+    const tb = d.querySelector('#b-title') as HTMLElement | null;
+    if (tb) tb.onclick = () => { window.removeEventListener('keydown', key); this.showTitle(); };
   }
 
   showExtract(then: () => void) {

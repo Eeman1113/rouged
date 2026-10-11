@@ -307,3 +307,14 @@ body.touch .mm-foot { display: none; }
 .cine .h { color: #cfe; }
 .cine .s { color: #e9e2d0; opacity: .8; }
 .field input[type=range], input[type=checkbox] { accent-color: #c4161c; }
+
+/* ─────────────── the false awakening (client/wake.ts) ─────────────── */
+/* sits under #hud so the Handler's own subtitles stay on top of the morning */
+.wake { position: absolute; inset: 0; background: #000; pointer-events: none; overflow: hidden; }
+.wake canvas { position: absolute; inset: -12px; width: calc(100% + 24px); height: calc(100% + 24px); image-rendering: pixelated; }
+.wake-skip { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); font-family: var(--px); font-size: 9px; letter-spacing: 2px; color: rgba(233,226,208,.55); }
+/* the readout in the white room: top centre, clear of door 35 and the subtitles */
+.wake-readout { position: absolute; left: 50%; top: max(9vh, 48px); transform: translateX(-50%); width: min(680px, calc(100vw - 32px)); font-family: var(--vt); font-size: clamp(18px, 2.3vw, 27px); line-height: 1.25; color: var(--term); text-shadow: 0 0 8px rgba(0,255,102,.55), 2px 2px 0 #000; background: rgba(0,0,0,.66); border: 1px solid #1a4a1a; padding: 12px 18px; pointer-events: none; transition: opacity 1.5s; }
+.wake-readout b { color: #fff; font-weight: normal; text-shadow: 0 0 10px rgba(255,255,255,.6), 2px 2px 0 #000; }
+.wake-readout.out { opacity: 0; }
+@media (max-height: 460px) { .wake-readout { top: max(10px, env(safe-area-inset-top)); font-size: 17px; padding: 8px 12px; } }

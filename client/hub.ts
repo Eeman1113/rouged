@@ -8,6 +8,15 @@ import type { Meta } from './meta';
 import { hubState, HubState, terminalText } from './story/fragments';
 import { music } from './audio/music';
 import { sfx, LoopHandle } from './audio/sfx';
+import { SealedDoor } from './render/sealedDoor';
+import { doorPrompt, doorReadout } from './story/awakening';
+
+export interface HubOpts {
+  /** Warden sigils lit for the first time by the last run: they flare on door 35 */
+  freshSigils?: number[];
+  /** arriving from a false awakening: face door 35, hold the change note until wakeDone() */
+  wake?: boolean;
+}
 
 export class Hub {
   state: HubState;
@@ -18,8 +27,11 @@ export class Hub {
   terminal = { x: 0, z: 0 };
   mirror = { x: 0, z: 0 };
   paused = false;
+  /** door 35: the way out the program never mentions */
+  door35: SealedDoor;
+  private fresh: number[];
 
-  constructor(public world: World, public meta: Meta, public cb: { onDeploy(): void; onTerminal(lines: string[]): void }, quiet = false) {
+  constructor(public world: World, public meta: Meta, public cb: { onDeploy(): void; onTerminal(lines: string[]): void; onInspect?(lines: string[]): void }, quiet = false, opts: HubOpts = {}) {
     const rc = meta.runCount;
     let s = hashString('hub' + rc);
     const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
@@ -34,8 +46,13 @@ export class Hub {
     world.map.showDoorLabels(true);
     world.setOpenDoors(new Set([0]));
     const sp = geo.playerSpawns[0];
-    world.player.teleport(0, 0, geo.d / 2 - 2.2, 0);
+    // after a false awakening you open your eyes facing door 35
+    world.player.teleport(0, 0, geo.d / 2 - 2.2, opts.wake ? 0.24 : 0);
     void sp;
+    this.fresh = (opts.freshSigils ?? []).filter((b) => meta.sigils.includes(b));
+    this.door35 = new SealedDoor(meta.sigils.filter((b) => !this.fresh.includes(b)), meta.trueEndingSeen);
+    world.map.group.add(this.door35.group);
+    if (!opts.wake && !quiet && this.fresh.length) this.flareFresh(1.4);
     const term = geo.decor.find((d) => d.kind === 'terminal')!;
     this.terminal = { x: term.x + term.nx * 1.2, z: term.z + term.nz * 1.2 };
     const mir = geo.decor.find((d) => d.kind === 'mirror')!;
@@ -51,9 +68,26 @@ export class Hub {
     this.noteEl.className = 'hub-note';
     this.noteEl.textContent = this.state.changeNote;
     document.getElementById('screens')!.appendChild(this.noteEl);
-    if (!quiet) setTimeout(() => this.noteEl.classList.add('on'), 1200);
-    setTimeout(() => this.noteEl.classList.remove('on'), 9000);
+    if (!opts.wake) {
+      if (!quiet) setTimeout(() => this.noteEl.classList.add('on'), 1200);
+      setTimeout(() => this.noteEl.classList.remove('on'), 9000);
+    }
     if (rc === 0 && !quiet) setTimeout(() => world.say('hubIdle', rc, 2, 0), 2500);
+  }
+
+  /** Light the sigils the last run earned (staggered flares). Returns the seconds until the last lands. */
+  flareFresh(delay: number): number {
+    if (!this.fresh.length) return 0;
+    const list = this.fresh; this.fresh = [];
+    for (let i = 0; i < list.length; i++) setTimeout(() => { if (this.door35.group.parent) sfx.terminalBeep(); }, (delay + i * 0.5) * 1000);
+    return this.door35.flare(list, delay);
+  }
+
+  /** The false awakening is over: the room behaves as it always does. */
+  wakeDone() {
+    if (!this.noteEl.isConnected) return;
+    this.noteEl.classList.add('on');
+    setTimeout(() => this.noteEl.classList.remove('on'), 7000);
   }
 
   update(dt: number) {
@@ -81,7 +115,15 @@ export class Hub {
       prompt = inp.touchMode ? 'USE · TERMINAL' : '[E] TERMINAL';
       if (inp.pressed.has('use')) { sfx.terminalBeep(); this.cb.onTerminal(terminalText(this.meta.runCount, Math.random)); }
     }
+    // door 35: read the seal
+    const dd = Math.hypot(this.door35.front.x - lp.x, this.door35.front.z - lp.z);
+    if (!prompt && dd < 1.9) {
+      const label = doorPrompt(this.meta.sigils.length, this.door35.open);
+      prompt = inp.touchMode ? 'USE · ' + label : '[E] ' + label;
+      if (inp.pressed.has('use') && this.cb.onInspect) { sfx.terminalBeep(); this.cb.onInspect(doorReadout(this.meta.sigils, this.door35.open)); }
+    }
     h.prompt(prompt);
+    this.door35.update(dt);
     // the door: walk through to deploy
     if (!this.deployed && lp.z < -w.geo!.d / 2 - 0.4) {
       this.deployed = true;
